@@ -294,7 +294,7 @@ void printf(const char* fmt, ...)
     va_end(args);
 }
 
-void printf_buffer(const char* msg, const void* buffer, uint32_t count)
+void print_buffer(const char* msg, const void* buffer, uint32_t count)
 {
     const uint8_t* u8Buffer = (const uint8_t*)buffer;
 
