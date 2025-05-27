@@ -20,8 +20,8 @@ export TARGET_LIBS =
 export SOURCE_DIR = $(abspath .)
 export BUILD_DIR = $(abspath build)
 
-BINUTILS_VERSION = 2.40
+BINUTILS_VERSION = 2.38
 BINUTILS_URL = https://ftp.gnu.org/gnu/binutils/binutils-$(BINUTILS_VERSION).tar.xz
 
-GCC_VERSION = 12.2.0
+GCC_VERSION = 11.4.0
 GCC_URL = https://ftp.gnu.org/gnu/gcc/gcc-$(GCC_VERSION)/gcc-$(GCC_VERSION).tar.xz
