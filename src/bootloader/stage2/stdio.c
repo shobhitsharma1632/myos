@@ -6,14 +6,14 @@
 
 const unsigned SCREEN_WIDTH = 80;
 const unsigned SCREEN_HEIGHT = 25;
-const uint8_t DEFAULT_COLOR = 0x07;
+const uint8_t DEFAULT_COLOR = 0x7;
 
 uint8_t* g_ScreenBuffer = (uint8_t*)0xB8000;
 int g_ScreenX = 0, g_ScreenY = 0;
 
 void putchr(int x, int y, char c)
 {
-    g_ScreenBuffer[(y * SCREEN_WIDTH + x) * 2] = c; 
+    g_ScreenBuffer[2 * (y * SCREEN_WIDTH + x)] = c;
 }
 
 void putcolor(int x, int y, uint8_t color)
@@ -21,15 +21,15 @@ void putcolor(int x, int y, uint8_t color)
     g_ScreenBuffer[2 * (y * SCREEN_WIDTH + x) + 1] = color;
 }
 
-char getchar(int x, int y)
+char getchr(int x, int y)
 {
-    return g_ScreenBuffer[(y * SCREEN_WIDTH + x) * 2];
+    return g_ScreenBuffer[2 * (y * SCREEN_WIDTH + x)];
 }
 
 uint8_t getcolor(int x, int y)
 {
     return g_ScreenBuffer[2 * (y * SCREEN_WIDTH + x) + 1];
-}   
+}
 
 void setcursor(int x, int y)
 {
@@ -44,13 +44,11 @@ void setcursor(int x, int y)
 void clrscr()
 {
     for (int y = 0; y < SCREEN_HEIGHT; y++)
-    {
         for (int x = 0; x < SCREEN_WIDTH; x++)
         {
-            putchr(x, y, ' ');
+            putchr(x, y, '\0');
             putcolor(x, y, DEFAULT_COLOR);
         }
-    }
 
     g_ScreenX = 0;
     g_ScreenY = 0;
@@ -62,17 +60,17 @@ void scrollback(int lines)
     for (int y = lines; y < SCREEN_HEIGHT; y++)
         for (int x = 0; x < SCREEN_WIDTH; x++)
         {
-            putchr(x, y - lines, getchar(x, y));
+            putchr(x, y - lines, getchr(x, y));
             putcolor(x, y - lines, getcolor(x, y));
         }
-    
+
     for (int y = SCREEN_HEIGHT - lines; y < SCREEN_HEIGHT; y++)
-        for (int x = 0; x < SCREEN_HEIGHT; x++)
+        for (int x = 0; x < SCREEN_WIDTH; x++)
         {
             putchr(x, y, '\0');
             putcolor(x, y, DEFAULT_COLOR);
         }
-    
+
     g_ScreenY -= lines;
 }
 
@@ -84,7 +82,7 @@ void putc(char c)
             g_ScreenX = 0;
             g_ScreenY++;
             break;
-        
+    
         case '\t':
             for (int i = 0; i < 4 - (g_ScreenX % 4); i++)
                 putc(' ');
@@ -93,7 +91,7 @@ void putc(char c)
         case '\r':
             g_ScreenX = 0;
             break;
-        
+
         default:
             putchr(g_ScreenX, g_ScreenY, c);
             g_ScreenX++;
@@ -102,10 +100,9 @@ void putc(char c)
 
     if (g_ScreenX >= SCREEN_WIDTH)
     {
-        g_ScreenX = 0;
         g_ScreenY++;
+        g_ScreenX = 0;
     }
-
     if (g_ScreenY >= SCREEN_HEIGHT)
         scrollback(1);
 
@@ -118,17 +115,17 @@ void puts(const char* str)
     {
         putc(*str);
         str++;
-    };
+    }
 }
 
-const char g_HexChars[] = "0123456789ABCDEF";
+const char g_HexChars[] = "0123456789abcdef";
 
 void printf_unsigned(unsigned long long number, int radix)
 {
     char buffer[32];
     int pos = 0;
 
-    // Convert number to ASCII
+    // convert number to ASCII
     do 
     {
         unsigned long long rem = number % radix;
@@ -136,7 +133,7 @@ void printf_unsigned(unsigned long long number, int radix)
         buffer[pos++] = g_HexChars[rem];
     } while (number > 0);
 
-    // Print the number in reverse order
+    // print number in reverse order
     while (--pos >= 0)
         putc(buffer[pos]);
 }
@@ -148,21 +145,20 @@ void printf_signed(long long number, int radix)
         putc('-');
         printf_unsigned(-number, radix);
     }
-    else
-        printf_unsigned(number, radix);
+    else printf_unsigned(number, radix);
 }
 
-#define PRINTF_STATE_NORMAL                     0
-#define PRINTF_STATE_LENGTH                     1
-#define PRINTF_STATE_LENGTH_SHORT               2
-#define PRINTF_STATE_LENGTH_LONG                3
-#define PRINTF_STATE_SPEC                       4
+#define PRINTF_STATE_NORMAL         0
+#define PRINTF_STATE_LENGTH         1
+#define PRINTF_STATE_LENGTH_SHORT   2
+#define PRINTF_STATE_LENGTH_LONG    3
+#define PRINTF_STATE_SPEC           4
 
-#define PRINTF_LENGTH_DEFAULT                    0
-#define PRINTF_LENGTH_SHORT_SHORT               1
-#define PRINTF_LENGTH_SHORT                     2
-#define PRINTF_LENGTH_LONG                      3 
-#define PRINTF_LENGTH_LONG_LONG                 4
+#define PRINTF_LENGTH_DEFAULT       0
+#define PRINTF_LENGTH_SHORT_SHORT   1
+#define PRINTF_LENGTH_SHORT         2
+#define PRINTF_LENGTH_LONG          3
+#define PRINTF_LENGTH_LONG_LONG     4
 
 void printf(const char* fmt, ...)
 {
@@ -177,18 +173,17 @@ void printf(const char* fmt, ...)
 
     while (*fmt)
     {
-        switch(state)
+        switch (state)
         {
             case PRINTF_STATE_NORMAL:
-                switch(*fmt)
+                switch (*fmt)
                 {
                     case '%':   state = PRINTF_STATE_LENGTH;
                                 break;
-                         
                     default:    putc(*fmt);
                                 break;
                 }
-                break;  
+                break;
 
             case PRINTF_STATE_LENGTH:
                 switch (*fmt)
@@ -204,7 +199,16 @@ void printf(const char* fmt, ...)
                 break;
 
             case PRINTF_STATE_LENGTH_SHORT:
-                if (*fmt == '1')
+                if (*fmt == 'h')
+                {
+                    length = PRINTF_LENGTH_SHORT_SHORT;
+                    state = PRINTF_STATE_SPEC;
+                }
+                else goto PRINTF_STATE_SPEC_;
+                break;
+
+            case PRINTF_STATE_LENGTH_LONG:
+                if (*fmt == 'l')
                 {
                     length = PRINTF_LENGTH_LONG_LONG;
                     state = PRINTF_STATE_SPEC;
@@ -214,72 +218,74 @@ void printf(const char* fmt, ...)
 
             case PRINTF_STATE_SPEC:
             PRINTF_STATE_SPEC_:
-                switch(*fmt)
+                switch (*fmt)
                 {
                     case 'c':   putc((char)va_arg(args, int));
                                 break;
-                    
-                    case 's':   puts(va_arg(args, const char*));
-                                break;
-                    
-                    case '%':   putc('%');
-                                break;
-                    
-                    case 'd':
-                    case 'i':   sign = true; number = true; radix = 10;
+
+                    case 's':   
+                                puts(va_arg(args, const char*));
                                 break;
 
-                    case 'u':   sign = false; number = true; radix=16;
-                                break;       
+                    case '%':   putc('%');
+                                break;
+
+                    case 'd':
+                    case 'i':   radix = 10; sign = true; number = true;
+                                break;
+
+                    case 'u':   radix = 10; sign = false; number = true;
+                                break;
 
                     case 'X':
                     case 'x':
-                    case 'p':   sign = false; number = true; radix = 16;
-                                break; 
-                    case 'o':   sign = false; number = true; radix = 8;
+                    case 'p':   radix = 16; sign = false; number = true;
+                                break;
+
+                    case 'o':   radix = 8; sign = false; number = true;
                                 break;
 
                     // ignore invalid spec
-                    default:    break;    
+                    default:    break;
                 }
 
                 if (number)
                 {
                     if (sign)
                     {
-                        switch(length)
+                        switch (length)
                         {
-                            case PRINTF_LENGTH_SHORT_SHORT:
-                            case PRINTF_LENGTH_SHORT:
-                            case PRINTF_LENGTH_DEFAULT:         printf_signed(va_arg(args, int), radix);
-                                                                break;
+                        case PRINTF_LENGTH_SHORT_SHORT:
+                        case PRINTF_LENGTH_SHORT:
+                        case PRINTF_LENGTH_DEFAULT:     printf_signed(va_arg(args, int), radix);
+                                                        break;
 
-                            case PRINTF_LENGTH_LONG:            printf_signed(va_arg(args, long), radix);
-                                                                break;
-                            
-                            case PRINTF_LENGTH_LONG_LONG:       printf_signed(va_arg(args, long long), radix);
-                                                                break;  
+                        case PRINTF_LENGTH_LONG:        printf_signed(va_arg(args, long), radix);
+                                                        break;
+
+                        case PRINTF_LENGTH_LONG_LONG:   printf_signed(va_arg(args, long long), radix);
+                                                        break;
                         }
                     }
                     else
                     {
-                        switch(length)
+                        switch (length)
                         {
-                            case PRINTF_LENGTH_SHORT_SHORT:
-                            case PRINTF_LENGTH_SHORT:
-                            case PRINTF_LENGTH_DEFAULT:         printf_unsigned(va_arg(args, unsigned int), radix);
-                                                                break;  
-                            
-                            case PRINTF_LENGTH_LONG:            printf_unsigned(va_arg(args, unsigned long), radix);
-                                                                break;
+                        case PRINTF_LENGTH_SHORT_SHORT:
+                        case PRINTF_LENGTH_SHORT:
+                        case PRINTF_LENGTH_DEFAULT:     printf_unsigned(va_arg(args, unsigned int), radix);
+                                                        break;
+                                                        
+                        case PRINTF_LENGTH_LONG:        printf_unsigned(va_arg(args, unsigned  long), radix);
+                                                        break;
 
-                            case PRINTF_LENGTH_LONG_LONG:       printf_unsigned(va_arg(args, unsigned long long), radix);
-                                                                break;
+                        case PRINTF_LENGTH_LONG_LONG:   printf_unsigned(va_arg(args, unsigned  long long), radix);
+                                                        break;
                         }
                     }
                 }
 
-                // reset state 
+                // reset state
                 state = PRINTF_STATE_NORMAL;
                 length = PRINTF_LENGTH_DEFAULT;
                 radix = 10;
@@ -297,12 +303,12 @@ void printf(const char* fmt, ...)
 void print_buffer(const char* msg, const void* buffer, uint32_t count)
 {
     const uint8_t* u8Buffer = (const uint8_t*)buffer;
-
+    
     puts(msg);
     for (uint16_t i = 0; i < count; i++)
     {
         putc(g_HexChars[u8Buffer[i] >> 4]);
-        putc(g_HexChars[u8Buffer[i] & 0x0F]);
+        putc(g_HexChars[u8Buffer[i] & 0xF]);
     }
-    putc('\n');
+    puts("\n");
 }
