@@ -28,7 +28,7 @@ int memcmp(const void* ptr1, const void* ptr2, uint16_t num)
 
     for (uint16_t i = 0; i < num; i++)
         if (u8Ptr1[i] != u8Ptr2[i])
-            return u8Ptr1[i] - u8Ptr2[i];
+            return 1;
 
     return 0;
 }
