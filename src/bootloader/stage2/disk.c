@@ -12,7 +12,7 @@ bool DISK_Initialize(DISK* disk, uint8_t driveNumber)
 
     disk->id = driveNumber;
     disk->cylinders = cylinders;
-    disk->heads = heads + 1;
+    disk->heads = heads;
     disk->sectors = sectors;
 
     return true;
