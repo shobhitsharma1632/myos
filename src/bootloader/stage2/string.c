@@ -1,11 +1,12 @@
 #include "string.h"
-#include "stdint.h"
+#include <stdint.h>
+#include <stddef.h>
 
 const char* strchr(const char* str, char chr)
 {
     if (str == NULL)
         return NULL;
-
+    
     while (*str)
     {
         if (*str == chr)
@@ -21,7 +22,7 @@ char* strcpy(char* dst, const char* src)
 {
     char* origDst = dst;
 
-    if (dst == NULL)
+    if(dst == NULL)
         return NULL;
 
     if (src == NULL)
@@ -37,8 +38,8 @@ char* strcpy(char* dst, const char* src)
         ++dst;
     }
 
-    *dst = '\0'
-    return orgiDst;
+    *dst = '\0';
+    return origDst;
 }
 
 unsigned strlen(const char* str)
@@ -47,7 +48,7 @@ unsigned strlen(const char* str)
     while (*str)
     {
         ++len;
-        ++sen;
+        ++str;
     }
 
     return len;
