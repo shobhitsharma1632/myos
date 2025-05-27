@@ -7,21 +7,21 @@ typedef struct
     uint8_t Name[11];
     uint8_t Attributes;
     uint8_t _Reserved;
-    uint8_t CreatedTimeTeneths;
+    uint8_t CreatedTimeTenths;
     uint16_t CreatedTime;
     uint16_t CreatedDate;
     uint16_t AccessedDate;
-    uint16_t FristClusterHigh;
+    uint16_t FirstClusterHigh;
     uint16_t ModifiedTime;
     uint16_t ModifiedDate;
     uint16_t FirstClusterLow;
     uint32_t Size;
-}__attribute__((packed)) FAT_DirectoryEntry;
+} __attribute__((packed)) FAT_DirectoryEntry;
 
 typedef struct
 {
     int Handle;
-    bool isDirectory;
+    bool IsDirectory;
     uint32_t Position;
     uint32_t Size;
 } FAT_File;
