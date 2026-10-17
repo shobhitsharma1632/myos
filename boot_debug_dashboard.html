@@ -1,0 +1,755 @@
+<title>Boot Debug Dashboard</title>
+<style>
+  :root {
+    --bg-primary: #f8f7f5;
+    --bg-secondary: #ffffff;
+    --text-primary: #1a1816;
+    --text-secondary: #5a5450;
+    --border: #e8e4df;
+    --accent-info: #0066cc;
+    --accent-success: #008000;
+    --accent-warning: #d97706;
+    --accent-error: #dc2626;
+    --code-bg: #2d2d2d;
+    --code-text: #f8f8f2;
+    --mono: "Courier New", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg-primary: #1a1816;
+      --bg-secondary: #2d2a27;
+      --text-primary: #f8f7f5;
+      --text-secondary: #b8b0a8;
+      --border: #3d3a37;
+      --accent-info: #4da6ff;
+      --accent-success: #22c55e;
+      --accent-warning: #fbbf24;
+      --accent-error: #ef4444;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg-primary: #1a1816;
+    --bg-secondary: #2d2a27;
+    --text-primary: #f8f7f5;
+    --text-secondary: #b8b0a8;
+    --border: #3d3a37;
+    --accent-info: #4da6ff;
+    --accent-success: #22c55e;
+    --accent-warning: #fbbf24;
+    --accent-error: #ef4444;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 20px;
+  }
+
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    margin: 0 0 8px 0;
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+  }
+
+  .subtitle {
+    color: var(--text-secondary);
+    margin: 0 0 24px 0;
+    font-size: 14px;
+  }
+
+  .section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+
+  .section h2 {
+    margin: 0 0 16px 0;
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+  }
+
+  .card.error {
+    border-left: 4px solid var(--accent-error);
+  }
+
+  .card.warning {
+    border-left: 4px solid var(--accent-warning);
+  }
+
+  .card.success {
+    border-left: 4px solid var(--accent-success);
+  }
+
+  .card.info {
+    border-left: 4px solid var(--accent-info);
+  }
+
+  .card-title {
+    font-weight: 600;
+    font-size: 14px;
+    margin: 0 0 8px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+  }
+
+  .card-value {
+    font-size: 18px;
+    font-weight: 500;
+    margin: 0;
+    font-family: var(--mono);
+  }
+
+  .boot-sequence {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .boot-step {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    border-left: 3px solid var(--border);
+    font-size: 14px;
+  }
+
+  .boot-step.active {
+    border-left-color: var(--accent-info);
+    background: rgba(0, 102, 204, 0.05);
+  }
+
+  .boot-step.success {
+    border-left-color: var(--accent-success);
+    background: rgba(0, 128, 0, 0.05);
+  }
+
+  .boot-step.error {
+    border-left-color: var(--accent-error);
+    background: rgba(220, 38, 38, 0.05);
+  }
+
+  .step-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    font-weight: 600;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+
+  .boot-step.active .step-badge {
+    background: var(--accent-info);
+    color: white;
+  }
+
+  .boot-step.success .step-badge {
+    background: var(--accent-success);
+    color: white;
+  }
+
+  .boot-step.error .step-badge {
+    background: var(--accent-error);
+    color: white;
+  }
+
+  .step-content {
+    flex: 1;
+  }
+
+  .step-title {
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .step-detail {
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin: 4px 0 0 0;
+  }
+
+  .code-block {
+    background: var(--code-bg);
+    color: var(--code-text);
+    padding: 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.5;
+    margin: 12px 0;
+  }
+
+  .issues {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .issue {
+    border-left: 3px solid var(--accent-error);
+    background: var(--bg-primary);
+    padding: 12px;
+    border-radius: 4px;
+  }
+
+  .issue-title {
+    font-weight: 600;
+    margin: 0 0 4px 0;
+    font-size: 14px;
+  }
+
+  .issue-desc {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .issue-code {
+    background: var(--code-bg);
+    color: var(--code-text);
+    padding: 8px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    overflow-x: auto;
+    margin: 0;
+  }
+
+  .solution {
+    background: rgba(0, 128, 0, 0.05);
+    border: 1px solid rgba(0, 128, 0, 0.2);
+    padding: 12px;
+    border-radius: 4px;
+    margin-top: 12px;
+    font-size: 13px;
+  }
+
+  .solution-title {
+    font-weight: 600;
+    color: var(--accent-success);
+    margin: 0 0 4px 0;
+  }
+
+  .solution ul {
+    margin: 8px 0 0 0;
+    padding-left: 20px;
+  }
+
+  .solution li {
+    margin: 4px 0;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+    margin: 12px 0;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  th {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    padding: 8px;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid var(--border);
+  }
+
+  td {
+    padding: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  tr:hover {
+    background: var(--bg-primary);
+  }
+
+  .memory-map {
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.8;
+  }
+
+  .mem-addr {
+    color: var(--accent-info);
+  }
+
+  .mem-label {
+    color: var(--text-primary);
+  }
+
+  .mem-value {
+    color: var(--accent-warning);
+  }
+
+  .btn-group {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+
+  button {
+    padding: 8px 16px;
+    background: var(--accent-info);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+
+  button:hover {
+    opacity: 0.9;
+  }
+
+  .status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .status-running {
+    background: rgba(0, 102, 204, 0.2);
+    color: var(--accent-info);
+  }
+
+  .status-stuck {
+    background: rgba(217, 119, 6, 0.2);
+    color: var(--accent-warning);
+  }
+
+  .status-failed {
+    background: rgba(220, 38, 38, 0.2);
+    color: var(--accent-error);
+  }
+</style>
+
+<div class="container">
+  <h1>🖥️ Boot Debug Dashboard</h1>
+  <p class="subtitle">Detailed analysis of myOS boot sequence failure and diagnostic traces</p>
+
+  <!-- Current Status -->
+  <div class="section">
+    <h2>Current Status</h2>
+    <div class="grid">
+      <div class="card error">
+        <div class="card-title">Boot State</div>
+        <div class="card-value">STUCK AT STAGE 1</div>
+      </div>
+      <div class="card warning">
+        <div class="card-title">Last Message</div>
+        <div class="card-value">Boot failed: could not read</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Environment</div>
+        <div class="card-value">QEMU + Floppy</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Issue Type</div>
+        <div class="card-value">INT 13h Failure</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Boot Sequence -->
+  <div class="section">
+    <h2>Boot Sequence Analysis</h2>
+    <div class="boot-sequence">
+      <div class="boot-step success">
+        <div class="step-badge">✓</div>
+        <div class="step-content">
+          <p class="step-title">BIOS Initialization</p>
+          <p class="step-detail">BIOS loads and executes boot code</p>
+        </div>
+      </div>
+
+      <div class="boot-step success">
+        <div class="step-badge">✓</div>
+        <div class="step-content">
+          <p class="step-title">Stage 1 Load (0x7C00)</p>
+          <p class="step-detail">512-byte bootloader loaded and starts executing</p>
+        </div>
+      </div>
+
+      <div class="boot-step error">
+        <div class="step-badge">✗</div>
+        <div class="step-content">
+          <p class="step-title">Stage 2 Read (INT 13h)</p>
+          <p class="step-detail">Failed to read 50 sectors from LBA 2 into 0x0500</p>
+        </div>
+      </div>
+
+      <div class="boot-step">
+        <div class="step-badge">⊘</div>
+        <div class="step-content">
+          <p class="step-title">Stage 2 Entry</p>
+          <p class="step-detail">Never reached – Stage 1 read failed</p>
+        </div>
+      </div>
+
+      <div class="boot-step">
+        <div class="step-badge">⊘</div>
+        <div class="step-content">
+          <p class="step-title">Protected Mode Switch</p>
+          <p class="step-detail">Never reached</p>
+        </div>
+      </div>
+
+      <div class="boot-step">
+        <div class="step-badge">⊘</div>
+        <div class="step-content">
+          <p class="step-title">Kernel Load & Execute</p>
+          <p class="step-detail">Never reached</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Root Causes -->
+  <div class="section">
+    <h2>Identified Issues</h2>
+    <div class="issues">
+      <div class="issue">
+        <p class="issue-title">1. Boot Disk Type Mismatch</p>
+        <p class="issue-desc">Stage 1 bootloader uses hard disk (HD) read parameters, but QEMU boots from a floppy image. BIOS returns different sector geometry for floppies.</p>
+        <p class="issue-code">QEMU: -drive file=${FLOPPY_IMAGE},format=raw,if=floppy</p>
+        <div class="solution">
+          <p class="solution-title">✓ Solution:</p>
+          <ul>
+            <li>Bootloader must detect drive type (floppy vs HD)</li>
+            <li>Use INT 13h AH=08h to get actual drive parameters</li>
+            <li>Or hard-code floppy parameters for floppy images</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="issue">
+        <p class="issue-title">2. No Error Reporting from Stage 1</p>
+        <p class="issue-desc">Current bootloader prints 'E' on error but doesn't show error code, making diagnosis impossible. We don't know which INT 13h error occurred.</p>
+        <p class="issue-code">jc floppy_error    ; Carry flag set = error, but code not printed</p>
+        <div class="solution">
+          <p class="solution-title">✓ Solution:</p>
+          <ul>
+            <li>Print error code in hex (AH register contains error number)</li>
+            <li>Print drive number being accessed</li>
+            <li>Print sector parameters (CHS or LBA)</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="issue">
+        <p class="issue-title">3. Floppy Disk Layout Not Verified</p>
+        <p class="issue-desc">The CMakeLists.txt creates the floppy image but doesn't verify stage2.bin is at the expected location. FAT filesystem may have different sector layout than bootloader expects.</p>
+        <div class="solution">
+          <p class="solution-title">✓ Solution:</p>
+          <ul>
+            <li>Dump floppy image to verify stage2.bin placement with: <code>mcopy -i main_floppy.img -D o :: | head -20</code></li>
+            <li>Verify boot sector is correctly written as first 512 bytes</li>
+            <li>Check FAT filesystem structure matches expected layout</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="issue">
+        <p class="issue-title">4. Wrong CHS Parameters for Floppy</p>
+        <p class="issue-desc">Bootloader hardcodes CHS (Cylinder/Head/Sector) addresses designed for hard disks. 1.44MB floppies have different geometry: 80 cylinders × 2 heads × 18 sectors.</p>
+        <p class="issue-code">mov ch, 0 ; Cylinder
+mov cl, 2 ; Sector
+mov dh, 0 ; Head</p>
+        <div class="solution">
+          <p class="solution-title">✓ Solution:</p>
+          <ul>
+            <li>For LBA 2 on 1.44MB floppy: cylinder=0, head=0, sector=3 (LBA+1)</li>
+            <li>Or switch to INT 13h Extended Read (AH=42h) using LBA directly</li>
+            <li>Or auto-detect geometry with INT 13h AH=08h</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="issue">
+        <p class="issue-title">5. Missing Debug Output in Stage 2</p>
+        <p class="issue-desc">Even if Stage 1 successfully loads Stage 2, we won't know where execution stops. No output until FAT init happens.</p>
+        <div class="solution">
+          <p class="solution-title">✓ Solution:</p>
+          <ul>
+            <li>Stage 2 entry should immediately print debug marker</li>
+            <li>Print at each major step: A20 enable, GDT load, protected mode switch</li>
+            <li>Print before and after FAT operations</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Memory Map -->
+  <div class="section">
+    <h2>Memory Layout</h2>
+    <div class="memory-map">
+      <div><span class="mem-addr">0x00000000</span>: <span class="mem-label">Interrupt Vector Table (IVT)</span></div>
+      <div><span class="mem-addr">0x00000400</span>: <span class="mem-label">BIOS Data Area</span></div>
+      <div><span class="mem-addr">0x00000500</span>: <span class="mem-label">→ Stage 2 Load Address</span> <span class="mem-value">(target)</span></div>
+      <div><span class="mem-addr">0x00007C00</span>: <span class="mem-label">→ Stage 1 Code (this is where BIOS loads bootloader)</span></div>
+      <div><span class="mem-addr">0x00100000</span>: <span class="mem-label">Kernel Load Address (MEMORY_LOAD_KERNEL)</span></div>
+    </div>
+  </div>
+
+  <!-- Floppy Disk Layout -->
+  <div class="section">
+    <h2>Floppy Disk Structure (1.44MB)</h2>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>LBA</th>
+            <th>CHS</th>
+            <th>Content</th>
+            <th>Size</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>0</td>
+            <td>C:0 H:0 S:1</td>
+            <td>Boot Sector (Stage 1)</td>
+            <td>512 B</td>
+            <td><span class="status-badge status-failed">✗ Unverified</span></td>
+          </tr>
+          <tr>
+            <td>1</td>
+            <td>C:0 H:0 S:2</td>
+            <td>FAT #1 (first sector)</td>
+            <td>512 B</td>
+            <td><span class="status-badge status-failed">✗ Unverified</span></td>
+          </tr>
+          <tr>
+            <td>2+</td>
+            <td>C:0 H:0 S:3+</td>
+            <td>stage2.bin (should be here)</td>
+            <td>~50 sectors</td>
+            <td><span class="status-badge status-failed">✗ READ FAILED</span></td>
+          </tr>
+          <tr>
+            <td>–</td>
+            <td>–</td>
+            <td>FAT #2, Root Dir, kernel.bin</td>
+            <td>–</td>
+            <td><span class="status-badge status-stuck">? Unreachable</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Immediate Fixes -->
+  <div class="section">
+    <h2>Immediate Action Items</h2>
+    <div class="grid">
+      <div class="card info">
+        <div class="card-title">Step 1: Add Boot Debug Output</div>
+        <p style="margin: 8px 0; font-size: 13px;">Modify boot.asm to print:</p>
+        <ul style="margin: 8px 0; font-size: 12px; padding-left: 16px;">
+          <li>'S' at start</li>
+          <li>Drive number (hex)</li>
+          <li>'R' before read attempt</li>
+          <li>Error code if read fails</li>
+        </ul>
+      </div>
+      <div class="card info">
+        <div class="card-title">Step 2: Verify Floppy Image</div>
+        <p style="margin: 8px 0; font-size: 13px;">Check disk layout:</p>
+        <code style="display: block; background: var(--code-bg); color: var(--code-text); padding: 8px; border-radius: 3px; font-size: 11px; margin: 8px 0;">hexdump -C build/main_floppy.img | head -20</code>
+        <code style="display: block; background: var(--code-bg); color: var(--code-text); padding: 8px; border-radius: 3px; font-size: 11px; margin: 8px 0;">mcopy -i build/main_floppy.img -D o :: | head -20</code>
+      </div>
+      <div class="card info">
+        <div class="card-title">Step 3: Fix CHS or Use LBA</div>
+        <p style="margin: 8px 0; font-size: 13px;">Two options:</p>
+        <ul style="margin: 8px 0; font-size: 12px; padding-left: 16px;">
+          <li><strong>Floppy CHS:</strong> 80c × 2h × 18s</li>
+          <li><strong>LBA Extended:</strong> Use INT 13h AH=42h</li>
+        </ul>
+      </div>
+      <div class="card info">
+        <div class="card-title">Step 4: Enhance Stage 2 Debug</div>
+        <p style="margin: 8px 0; font-size: 13px;">Print markers at each stage:</p>
+        <ul style="margin: 8px 0; font-size: 12px; padding-left: 16px;">
+          <li>A20 gate enable</li>
+          <li>GDT load</li>
+          <li>Protected mode switch</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Next Steps -->
+  <div class="section">
+    <h2>Recommended Boot Order</h2>
+    <ol style="padding-left: 20px;">
+      <li><strong>Add comprehensive debug output to Stage 1</strong> – rebuild and run to see error code</li>
+      <li><strong>Dump and inspect the floppy image</strong> – verify stage2.bin is where we think it is</li>
+      <li><strong>Fix boot.asm to handle floppy geometry</strong> – use proper CHS or switch to LBA reads</li>
+      <li><strong>Add detailed Stage 2 entry logging</strong> – trace each initialization step</li>
+      <li><strong>Test incrementally</strong> – run after each change to see progress</li>
+    </ol>
+    <div class="btn-group">
+      <button onclick="copyDebugCode()">📋 Copy Debug Boot Code</button>
+      <button onclick="copyCheckScript()">📋 Copy Verify Script</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function copyDebugCode() {
+  const code = `org 0x7C00
+bits 16
+
+start:
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov sp, 0x7C00
+    mov [ebr_drive_number], dl
+
+    ; DEBUG: Print markers
+    mov al, 'S'
+    call print_char
+    mov al, [ebr_drive_number]
+    call print_hex_byte
+
+    ; Read Stage 2
+    mov ah, 02h
+    mov al, 50
+    mov ch, 0
+    mov cl, 2
+    mov dh, 0
+    mov dl, [ebr_drive_number]
+    mov bx, 0x0500
+
+    mov al, 'R'
+    call print_char
+
+    int 13h
+    jc read_error
+
+    mov al, 'O'
+    call print_char
+    mov al, 'K'
+    call print_char
+    jmp 0:0x500
+
+read_error:
+    mov al, 'E'
+    call print_char
+    mov al, ah
+    call print_hex_byte
+    cli
+    hlt
+
+print_char:
+    mov ah, 0x0E
+    int 0x10
+    ret
+
+print_hex_byte:
+    push ax
+    push bx
+    mov bl, al
+    shr al, 4
+    and al, 0x0F
+    cmp al, 0x09
+    jle .digit_high
+    add al, 'A' - 10
+    jmp .print_high
+.digit_high:
+    add al, '0'
+.print_high:
+    call print_char
+    mov al, bl
+    and al, 0x0F
+    cmp al, 0x09
+    jle .digit_low
+    add al, 'A' - 10
+    jmp .print_low
+.digit_low:
+    add al, '0'
+.print_low:
+    call print_char
+    pop bx
+    pop ax
+    ret
+
+ebr_drive_number: db 0
+times 510-($-$$) db 0
+dw 0xAA55`;
+  navigator.clipboard.writeText(code);
+  alert('Debug boot code copied to clipboard');
+}
+
+function copyCheckScript() {
+  const script = `#!/bin/bash
+echo "=== Checking Floppy Image Structure ==="
+echo
+echo "File size:"
+ls -lh build/main_floppy.img
+echo
+echo "First 1024 bytes (boot sector + FAT):"
+hexdump -C build/main_floppy.img | head -20
+echo
+echo "Contents via mcopy:"
+mcopy -i build/main_floppy.img -D o ::
+echo
+echo "Boot sector signature:"
+hexdump -C build/main_floppy.img | grep -A1 "aa55"`;
+  navigator.clipboard.writeText(script);
+  alert('Verification script copied to clipboard');
+}
+</script>

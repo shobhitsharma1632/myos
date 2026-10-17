@@ -1,0 +1,588 @@
+<title>LBA + Hard Drive Implementation Guide</title>
+
+<style>
+:root {
+  --bg: #f5f5f5;
+  --text: #333;
+  --border: #ddd;
+  --accent: #0066cc;
+  --code-bg: #2d2d2d;
+  --code-text: #f8f8f2;
+  --success: #008000;
+  --warning: #ff8800;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1a1a1a;
+    --text: #f0f0f0;
+    --border: #444;
+    --accent: #66b3ff;
+    --code-bg: #2d2d2d;
+    --code-text: #f8f8f2;
+    --success: #22c55e;
+    --warning: #ffaa33;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #1a1a1a;
+  --text: #f0f0f0;
+  --border: #444;
+  --accent: #66b3ff;
+  --success: #22c55e;
+  --warning: #ffaa33;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
+  margin: 0;
+  padding: 20px;
+}
+
+.container { max-width: 1200px; margin: 0 auto; }
+
+h1 { font-size: 2em; margin: 0 0 10px 0; }
+h2 { font-size: 1.5em; margin: 30px 0 15px 0; border-bottom: 2px solid var(--accent); padding-bottom: 10px; }
+h3 { font-size: 1.2em; margin: 20px 0 10px 0; }
+
+.section {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.code-block {
+  background: var(--code-bg);
+  color: var(--code-text);
+  padding: 15px;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-family: "Courier New", monospace;
+  font-size: 0.9em;
+  line-height: 1.4;
+  margin: 10px 0;
+}
+
+.highlight {
+  background: rgba(255, 136, 0, 0.2);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 15px 0;
+  font-size: 0.95em;
+}
+
+th, td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  background: rgba(0, 102, 204, 0.1);
+  font-weight: 600;
+}
+
+.step {
+  background: rgba(0, 102, 204, 0.05);
+  border-left: 4px solid var(--accent);
+  padding: 15px;
+  margin: 15px 0;
+  border-radius: 4px;
+}
+
+.step-title {
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin: 15px 0;
+}
+
+@media (max-width: 768px) {
+  .comparison { grid-template-columns: 1fr; }
+}
+
+.file-section {
+  background: rgba(0, 102, 204, 0.03);
+  border: 1px dashed var(--accent);
+  padding: 15px;
+  margin: 15px 0;
+  border-radius: 4px;
+}
+
+.file-name {
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 10px;
+  font-family: monospace;
+}
+
+.warning-box {
+  background: rgba(255, 136, 0, 0.1);
+  border-left: 4px solid var(--warning);
+  padding: 15px;
+  margin: 15px 0;
+  border-radius: 4px;
+}
+
+.success-box {
+  background: rgba(0, 128, 0, 0.1);
+  border-left: 4px solid var(--success);
+  padding: 15px;
+  margin: 15px 0;
+  border-radius: 4px;
+}
+
+ul { margin: 10px 0; padding-left: 20px; }
+li { margin: 5px 0; }
+
+.key-point {
+  font-weight: 600;
+  color: var(--accent);
+}
+</style>
+
+<h1>🖥️ LBA + Hard Drive Implementation Guide</h1>
+<p style="color: var(--text); margin: 0 0 20px 0;">Switching from floppy to hard drive with LBA + CHS fallback support</p>
+
+<div class="section">
+  <h2>Overview of Changes</h2>
+
+  <div class="comparison">
+    <div>
+      <h3>Current Setup (Floppy)</h3>
+      <ul>
+        <li>Boot drive: 0x00 (floppy)</li>
+        <li>Disk read: CHS only</li>
+        <li>Boot sector: Minimal</li>
+        <li>File location: Fixed</li>
+        <li>Error handling: Basic</li>
+      </ul>
+    </div>
+    <div>
+      <h3>New Setup (Hard Drive)</h3>
+      <ul>
+        <li>Boot drive: 0x80 (hard drive) ✓</li>
+        <li>Disk read: LBA + CHS fallback ✓</li>
+        <li>Boot sector: Full FAT12 BPB ✓</li>
+        <li>File location: Dynamic (reads FAT) ✓</li>
+        <li>Error handling: 3 retries + reset + messages ✓</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="success-box">
+    <strong>✓ Why This Works:</strong> Hard drives support LBA extensions. When QEMU boots a hard drive image, it sets DL=0x80, which enables full INT 13h extended support including LBA.
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 1: Update CMakeLists.txt (Image Creation)</h2>
+
+  <div class="step">
+    <div class="step-title">What to Change</div>
+    <p>Modify how the disk image is created and how QEMU boots it.</p>
+  </div>
+
+  <h3>Current Code (Floppy)</h3>
+  <div class="code-block">add_custom_target(run
+    COMMAND ${QEMU_I386_EXECUTABLE} -drive file=${FLOPPY_IMAGE},format=raw,if=floppy -nographic -serial mon:stdio
+    DEPENDS floppy_image
+    COMMENT "Running OS in QEMU..."
+)</div>
+
+  <h3>New Code (Hard Drive)</h3>
+  <div class="code-block">add_custom_target(run
+    COMMAND ${QEMU_I386_EXECUTABLE} -drive file=${FLOPPY_IMAGE},format=raw,if=ide -nographic -serial mon:stdio
+    DEPENDS floppy_image
+    COMMENT "Running OS in QEMU..."
+)</div>
+
+  <div class="warning-box">
+    <strong>⚠️ Key Change:</strong> <span class="highlight">if=floppy</span> → <span class="highlight">if=ide</span>
+    <br/>This tells QEMU to treat the image as an IDE hard drive (DL=0x80) instead of a floppy (DL=0x00).
+  </div>
+
+  <h3>Alternative Options</h3>
+  <table>
+    <tr>
+      <th>Option</th>
+      <th>Drive Number (DL)</th>
+      <th>Description</th>
+    </tr>
+    <tr>
+      <td><code>if=ide</code></td>
+      <td>0x80</td>
+      <td>Primary IDE (recommended)</td>
+    </tr>
+    <tr>
+      <td><code>if=ahci</code></td>
+      <td>0x80</td>
+      <td>AHCI (SATA emulation)</td>
+    </tr>
+    <tr>
+      <td><code>-hda</code></td>
+      <td>0x80</td>
+      <td>Shorthand for IDE primary</td>
+    </tr>
+  </table>
+
+  <div class="file-section">
+    <div class="file-name">📝 File: CMakeLists.txt</div>
+    <p>Line ~41: Change <code>if=floppy</code> to <code>if=ide</code></p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 2: Update boot.asm (Add FAT12 BPB + LBA Support)</h2>
+
+  <div class="step">
+    <div class="step-title">Major Changes</div>
+    <ul>
+      <li>Add FAT12 BIOS Parameter Block (BPB)</li>
+      <li>Add LBA support detection (AH=0x41)</li>
+      <li>Implement LBA read (AH=0x42) with fallback to CHS</li>
+      <li>Add 3-retry loop with disk reset</li>
+      <li>Add error messages</li>
+    </ul>
+  </div>
+
+  <h3>Structure Overview</h3>
+  <div class="code-block">org 0x7C00
+bits 16
+
+; FAT12 BIOS Parameter Block
+section .fsjump
+section .fsheaders    ← BPB goes here
+
+; Main bootloader code
+section .entry
+    global start
+    start:
+        ; Initialize
+        ; Check LBA support
+        ; Load stage2 (LBA or CHS)
+        ; Jump to stage2
+
+; Utility functions
+section .text
+    puts:
+    disk_read:
+    disk_reset:
+    lba_to_chs:
+
+section .data
+    ; DAP (Disk Address Packet)
+    ; have_extensions flag
+    ; error messages</div>
+
+  <h3>Key Functions to Implement</h3>
+  <table>
+    <tr>
+      <th>Function</th>
+      <th>Purpose</th>
+      <th>Source</th>
+    </tr>
+    <tr>
+      <td><code>puts()</code></td>
+      <td>Print error messages</td>
+      <td>nanobyte_os lines 190-211</td>
+    </tr>
+    <tr>
+      <td><code>disk_read()</code></td>
+      <td>Read with LBA or CHS + retry</td>
+      <td>nanobyte_os lines 261-319</td>
+    </tr>
+    <tr>
+      <td><code>disk_reset()</code></td>
+      <td>Reset disk controller</td>
+      <td>nanobyte_os lines 327-334</td>
+    </tr>
+    <tr>
+      <td><code>lba_to_chs()</code></td>
+      <td>Convert LBA to CHS</td>
+      <td>nanobyte_os lines 227-250</td>
+    </tr>
+  </table>
+
+  <h3>Reference nanobyte_os Code Sections</h3>
+  <ul>
+    <li><strong>FAT12 BPB:</strong> lines 16-57 (copy as-is for FAT12 floppy/disk)</li>
+    <li><strong>LBA Check:</strong> lines 95-107 (check if extensions available)</li>
+    <li><strong>File Loading Loop:</strong> lines 121-138 (read stage2_location table)</li>
+    <li><strong>Disk Read Logic:</strong> lines 261-319 (LBA+CHS with retry)</li>
+  </ul>
+
+  <div class="warning-box">
+    <strong>⚠️ Important:</strong> You'll adapt nanobyte_os code but keep your Stage 2 entry point and stack initialization.
+  </div>
+
+  <div class="file-section">
+    <div class="file-name">📝 File: src/bootloader/stage1/boot.asm</div>
+    <p>Replace entire file with new implementation</p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 3: Add Build System Support (stage2_location table)</h2>
+
+  <div class="step">
+    <div class="step-title">What's Needed</div>
+    <p>The bootloader needs to know where stage2.bin lives on the FAT filesystem. The build system computes this and writes it to the bootloader.</p>
+  </div>
+
+  <h3>In boot.asm, add:</h3>
+  <div class="code-block">section .data
+    global stage2_location
+    stage2_location:        times 30 db 0  ; Table filled by build system
+    have_extensions:        db 0           ; LBA support flag</div>
+
+  <h3>In CMakeLists.txt, add logic to:</h3>
+  <ol>
+    <li>Create hard disk image with FAT filesystem</li>
+    <li>Write stage2.bin to FAT</li>
+    <li>Compute stage2.bin's LBA location(s)</li>
+    <li>Write LBA addresses to bootloader's stage2_location table</li>
+    <li>Write bootloader to disk sector 0</li>
+  </ol>
+
+  <div class="warning-box">
+    <strong>⚠️ Complex Part:</strong> Computing LBA locations from FAT filesystem layout requires understanding FAT12 structure. nanobyte_os uses a custom tool or script for this.
+    <br/><br/>
+    <strong>Simpler Alternative:</strong> For now, use fixed offsets (like current approach) but read from FAT at boot. This sacrifices flexibility but is simpler.
+  </div>
+
+  <div class="file-section">
+    <div class="file-name">📝 File: CMakeLists.txt</div>
+    <p>Add disk image creation logic (see nanobyte_os root CMakeLists.txt for reference)</p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 4: Key Code Snippets</h2>
+
+  <h3>FAT12 BIOS Parameter Block (to add at start)</h3>
+  <div class="code-block">section .fsjump
+    jmp short start
+    nop
+
+section .fsheaders
+    bdb_oem:                    db "MYOS8ACK"
+    bdb_bytes_per_sector:       dw 512
+    bdb_sectors_per_cluster:    db 1
+    bdb_reserved_sectors:       dw 1
+    bdb_fat_count:              db 2
+    bdb_dir_entries_count:      dw 0xE0
+    bdb_total_sectors:          dw 2880
+    bdb_media_descriptor_type:  db 0xF0
+    bdb_sectors_per_fat:        dw 9
+    bdb_sectors_per_track:      dw 18
+    bdb_heads:                  dw 2
+    bdb_hidden_sectors:         dd 0
+    bdb_large_sector_count:     dd 0
+
+    ebr_drive_number:           db 0
+                                db 0
+    ebr_signature:              db 0x29
+    ebr_volume_id:              dd 0x12345678
+    ebr_volume_label:           db "MYOS       "
+    ebr_system_id:              db "FAT12   "</div>
+
+  <h3>LBA Support Detection (to add in main code)</h3>
+  <div class="code-block">mov ah, 0x41        ; Check Extensions
+mov bx, 0x55AA
+stc
+int 13h
+
+jc .no_disk_extensions
+cmp bx, 0xAA55
+jne .no_disk_extensions
+
+mov byte [have_extensions], 1
+
+.no_disk_extensions:</div>
+
+  <h3>Disk Read with LBA/CHS and Retry</h3>
+  <div class="code-block">disk_read:
+    ; Parameters: EAX=LBA, CL=sectors, DL=drive
+    ; Returns: CF=0 on success
+
+    mov di, 3           ; Retry count
+.retry:
+    cmp byte [have_extensions], 1
+    jne .chs_read
+
+    ; LBA read (AH=0x42)
+    mov [dap.lba], eax
+    mov ah, 0x42
+    mov si, dap
+    jmp .do_read
+
+.chs_read:
+    ; CHS read (AH=0x02)
+    call lba_to_chs
+    mov ah, 0x02
+
+.do_read:
+    pusha
+    stc
+    int 13h
+    jnc .success
+
+    popa
+    call disk_reset
+    dec di
+    jnz .retry
+    ret
+
+.success:
+    popa
+    clc
+    ret</div>
+
+  <div class="file-section">
+    <div class="file-name">📝 Reference Implementation</div>
+    <p>See nanobyte_os/src/bootloader/stage1/boot.asm for complete working code</p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 5: Testing</h2>
+
+  <h3>Verification Checklist</h3>
+  <ul>
+    <li>☐ Image boots as hard drive (QEMU shows "Booting from Hard Disk...")</li>
+    <li>☐ Boot output includes LBA detection (should print "extensions available" or similar)</li>
+    <li>☐ Stage 2 loads successfully</li>
+    <li>☐ Error messages appear if something goes wrong</li>
+    <li>☐ Retry logic works (test by corrupting sectors)</li>
+  </ul>
+
+  <h3>Debug Output Expected</h3>
+  <div class="code-block">SeaBIOS message...
+Booting from Hard Disk...
+[Your boot messages here]
+S00... (Stage 1 debug markers)
+[Stage 2 execution continues]</div>
+
+  <div class="file-section">
+    <div class="file-name">🧪 Testing Commands</div>
+    <div class="code-block">make build
+make run</div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Implementation Phases</h2>
+
+  <div class="step">
+    <div class="step-title">Phase 1: Quick Start (30 mins)</div>
+    <ul>
+      <li>Update CMakeLists.txt: change <code>if=floppy</code> to <code>if=ide</code></li>
+      <li>Copy nanobyte_os boot.asm as starting point</li>
+      <li>Adapt it for myOS (keep Stage 2 entry, add FAT12 BPB)</li>
+      <li>Test basic boot</li>
+    </ul>
+  </div>
+
+  <div class="step">
+    <div class="step-title">Phase 2: Core Functionality (1 hour)</div>
+    <ul>
+      <li>Implement FAT12 BPB correctly</li>
+      <li>Add LBA detection and read logic</li>
+      <li>Add CHS fallback</li>
+      <li>Test both paths</li>
+    </ul>
+  </div>
+
+  <div class="step">
+    <div class="step-title">Phase 3: Polish (30 mins)</div>
+    <ul>
+      <li>Add error messages (puts function)</li>
+      <li>Add retry logic with disk reset</li>
+      <li>Add debug output markers</li>
+      <li>Test error handling</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Common Issues & Solutions</h2>
+
+  <table>
+    <tr>
+      <th>Issue</th>
+      <th>Cause</th>
+      <th>Solution</th>
+    </tr>
+    <tr>
+      <td>Still booting as floppy</td>
+      <td>CMakeLists.txt not updated</td>
+      <td>Change <code>if=floppy</code> to <code>if=ide</code></td>
+    </tr>
+    <tr>
+      <td>Error 0x01 still appears</td>
+      <td>DL register not 0x80</td>
+      <td>Verify QEMU option is <code>if=ide</code>, not <code>if=floppy</code></td>
+    </tr>
+    <tr>
+      <td>LBA read fails, CHS works</td>
+      <td>DAP structure wrong</td>
+      <td>Check DAP layout (16 bytes, specific format)</td>
+    </tr>
+    <tr>
+      <td>Boot hangs</td>
+      <td>Infinite retry loop</td>
+      <td>Add timeout or reduce retry count for testing</td>
+    </tr>
+  </table>
+</div>
+
+<div class="section">
+  <h2>Reference Files</h2>
+
+  <div class="success-box">
+    <strong>✓ Use These as Templates:</strong>
+    <ul>
+      <li><code>nanobyte_os/src/bootloader/stage1/boot.asm</code> - Complete working bootloader</li>
+      <li><code>nanobyte_os/CMakeLists.txt</code> - Disk image creation (search for "mkfs.fat" and "dd")</li>
+      <li><code>nanobyte_os/src/bootloader/stage2/entry.asm</code> - Stage 2 entry (similar to yours)</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Ready?</h2>
+
+  <div class="success-box">
+    <strong>✓ You're Ready to Implement If You:</strong>
+    <ul>
+      <li>Understand the FAT12 BPB structure</li>
+      <li>Know how LBA vs CHS addressing works</li>
+      <li>Can follow the nanobyte_os code pattern</li>
+      <li>Have the diagnostic confirmation that hard drives support LBA</li>
+    </ul>
+  </div>
+
+  <p style="margin-top: 20px; font-weight: bold;">Start with Step 1 (CMakeLists.txt change) - it's the quickest way to verify hard drive booting works. Then proceed to boot.asm implementation.</p>
+</div>
+

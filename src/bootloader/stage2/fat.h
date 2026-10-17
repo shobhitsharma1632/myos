@@ -1,8 +1,8 @@
 #pragma once
 #include "stdint.h"
-#include "disk.h"
+#include "mbr.h"
 
-typedef struct
+typedef struct 
 {
     uint8_t Name[11];
     uint8_t Attributes;
@@ -18,7 +18,7 @@ typedef struct
     uint32_t Size;
 } __attribute__((packed)) FAT_DirectoryEntry;
 
-typedef struct
+typedef struct 
 {
     int Handle;
     bool IsDirectory;
@@ -28,17 +28,17 @@ typedef struct
 
 enum FAT_Attributes
 {
-    FAT_ATTRIVURE_READ_ONLY         = 0x01,
-    FAT_ATTRIVURE_HIDDEN            = 0x02,
-    FAT_ATTRIVURE_SYSTEM            = 0x04,
-    FAT_ATTRIVURE_VOLUME_ID         = 0x08,
-    FAT_ATTRIVURE_DIRECTORY         = 0x10,
-    FAT_ATTRIVURE_ARCHIVE           = 0x20,
-    FAT_ATTRIVURE_LFN               = FAT_ATTRIVURE_READ_ONLY | FAT_ATTRIVURE_HIDDEN | FAT_ATTRIVURE_SYSTEM | FAT_ATTRIVURE_VOLUME_ID
+    FAT_ATTRIBUTE_READ_ONLY         = 0x01,
+    FAT_ATTRIBUTE_HIDDEN            = 0x02,
+    FAT_ATTRIBUTE_SYSTEM            = 0x04,
+    FAT_ATTRIBUTE_VOLUME_ID         = 0x08,
+    FAT_ATTRIBUTE_DIRECTORY         = 0x10,
+    FAT_ATTRIBUTE_ARCHIVE           = 0x20,
+    FAT_ATTRIBUTE_LFN               = FAT_ATTRIBUTE_READ_ONLY | FAT_ATTRIBUTE_HIDDEN | FAT_ATTRIBUTE_SYSTEM | FAT_ATTRIBUTE_VOLUME_ID
 };
 
-bool FAT_Initialize(DISK* disk);
-FAT_File * FAT_Open(DISK* disk, const char* path);
-uint32_t FAT_Read(DISK* disk, FAT_File* file, uint32_t byteCount, void* dataOut);
-bool FAT_ReadEntry(DISK* disk, FAT_File* file, FAT_DirectoryEntry* dirEntry);
+bool FAT_Initialize(Partition* disk);
+FAT_File* FAT_Open(Partition* disk, const char* path);
+uint32_t FAT_Read(Partition* disk, FAT_File* file, uint32_t byteCount, void* dataOut);
+bool FAT_ReadEntry(Partition* disk, FAT_File* file, FAT_DirectoryEntry* dirEntry);
 void FAT_Close(FAT_File* file);
