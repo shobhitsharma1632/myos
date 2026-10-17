@@ -1,48 +1,66 @@
 #include <stdint.h>
+#include <stddef.h>
 #include "stdio.h"
 #include "x86.h"
 #include "disk.h"
+#include "mbr.h"
 #include "fat.h"
 #include "memdefs.h"
 #include "memory.h"
+#include "memdetect.h"
+#include "elf.h"
+#include <boot/bootparams.h>
 
-uint8_t* KernelLoadBuffer = (uint8_t*)MEMORY_LOAD_KERNEL;
-uint8_t* Kernel = (uint8_t*)MEMORY_KERNEL_ADDR;
+BootParams g_BootParams;
 
-typedef void(*KernelStart)();
+typedef void (*KernelStart)(BootParams* bootParams);
 
-void __attribute__((cdecl)) start(uint16_t bootDrive)
+void __attribute__((cdecl)) start(uint16_t bootDrive, void* partition)
 {
-    clrsrc();
+    clrscr();
+    printf("Starting Stage 2...\r\n");
 
     DISK disk;
+    printf("Initializing disk...\r\n");
     if (!DISK_Initialize(&disk, bootDrive))
     {
         printf("Disk init error\r\n");
         goto end;
     }
+    printf("Disk initialized\r\n");
 
-    if (!FAT_Initialize(&disk))
+    Partition part;
+    MBR_DetectPartition(&part, &disk, partition);
+
+    // Detect physical memory via BIOS E820
+    printf("Detecting memory...\r\n");
+    g_BootParams.BootDevice = (uint8_t)bootDrive;
+    Memory_Detect(&g_BootParams.Memory);
+    printf("Detected %d memory regions\r\n", g_BootParams.Memory.RegionCount);
+
+    printf("Initializing FAT...\r\n");
+    if (!FAT_Initialize(&part))
     {
         printf("FAT init error\r\n");
         goto end;
     }
+    printf("FAT initialized\r\n");
 
-    // load kernel 
-    FAT_File* fd = FAT_Open(&disk, "/kernel.bin");
-    uint32_t read;
-    uint8_t* kernelBuffer = Kernel;
-    while ((read = FAT_Read(&disk, fd, MEMORY_LOAD_SIZE, KernelLoadBuffer)))
+    // Load kernel ELF
+    printf("Loading kernel ELF...\r\n");
+    KernelStart kernelEntry = NULL;
+    if (!ELF_Read(&part, "/boot/kernel.elf", (void**)&kernelEntry))
     {
-        memcpy(kernelBuffer, KernelLoadBuffer, read);
-        kernelBuffer += read;
+        printf("ELF read failed, booting halted!\r\n");
+        goto end;
     }
-    FAT_Close(fd);
+    printf("Kernel loaded at %p\r\n", kernelEntry);
 
-    //execute kernel
-    KernelStart KernelStart = (KernelStart)Kernel;
-    KernelStart();
+    // Execute kernel passing boot parameters
+    printf("Executing kernel...\r\n");
+    kernelEntry(&g_BootParams);
 
 end:
+    printf("Halted.\r\n");
     for (;;);
 }

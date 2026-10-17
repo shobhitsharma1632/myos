@@ -13,6 +13,8 @@ entry:
 
     ; save boot drive
     mov [g_BootDrive], dl
+    mov [g_BootPartitionOff], si
+    mov [g_BootPartitionSeg], di
 
     ; setup stack
     mov ax, ds
@@ -22,6 +24,7 @@ entry:
 
     ; switch to protected mode
     call EnableA20              ; 2 - Enable A20 gate
+
     call LoadGDT                ; 3 - Load GDT
 
     ; 4 - set protection enable flag in CR0
@@ -32,7 +35,7 @@ entry:
     ; 5 - far jump into protected mode
     jmp dword 08h:.pmode
 
-.pmode: 
+.pmode:
     ; we are now in protected mode!
     [bits 32]
 
@@ -41,15 +44,23 @@ entry:
     mov ds, ax
     mov ss, ax
 
+    ; DEBUG: We're in protected mode but int 10h won't work anymore
+    ; We'll print during C code instead
+
     ; clear bss (uninitialized data)
     mov edi, __bss_start
-    mov ecx, __end 
-    sub ecx, edi 
+    mov ecx, __end
+    sub ecx, edi
     mov al, 0
-    cld 
+    cld
     rep stosb
 
     ; expect boot drive in dl, send it as argument to cstart function
+    mov dx, [g_BootPartitionSeg]
+    shl edx, 16
+    mov dx, [g_BootPartitionOff]
+    push edx
+
     xor edx, edx
     mov dl, [g_BootDrive]
     push edx
@@ -117,6 +128,43 @@ LoadGDT:
     lgdt [g_GDTDesc]
     ret
 
+; Print AL as hex byte (16-bit)
+print_hex_byte_asm:
+    [bits 16]
+    push ax
+    push bx
+
+    ; Print high nibble
+    mov bl, al
+    shr al, 4
+    and al, 0x0F
+    cmp al, 0x09
+    jle .digit_high
+    add al, 'A' - 10
+    jmp .print_high
+.digit_high:
+    add al, '0'
+.print_high:
+    mov ah, 0x0E
+    int 0x10
+
+    ; Print low nibble
+    mov al, bl
+    and al, 0x0F
+    cmp al, 0x09
+    jle .digit_low
+    add al, 'A' - 10
+    jmp .print_low
+.digit_low:
+    add al, '0'
+.print_low:
+    mov ah, 0x0E
+    int 0x10
+
+    pop bx
+    pop ax
+    ret
+
 
 
 KbdControllerDataPort               equ 0x60
@@ -168,3 +216,5 @@ g_GDTDesc:  dw g_GDTDesc - g_GDT - 1            ; limit = size of GDT
             dd g_GDT                            ; address of GDT
     
 g_BootDrive: db 0
+g_BootPartitionSeg: dw 0
+g_BootPartitionOff: dw 0
