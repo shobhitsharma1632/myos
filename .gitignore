@@ -1,0 +1,18 @@
+# Build outputs
+build/
+build_host/
+build_diagnostic/
+*.bin
+*.img
+*.log
+qemu_boot_output.txt
+
+# Toolchain (built locally by setup_toolchain.sh)
+toolchain/
+toolchain_build/
+
+# Editor files
+.vscode/
+*.swp
+*.swo
+*~

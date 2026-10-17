@@ -1,11 +1,9 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 
-typedef int bool;
-#define true    1
-#define false   0
 #define far
 
 typedef struct {

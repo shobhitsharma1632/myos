@@ -1,0 +1,27 @@
+{
+  "name": "Ubuntu OS Dev",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {}
+  },
+  
+  // ADDED omniroute to the end of this command
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y build-essential nasm qemu-system-x86 xorriso grub-pc-bin grub-common mtools && npm install -g @anthropic-ai/claude-code omniroute",
+  
+  "remoteUser": "vscode",
+  
+  // Keep this mount so you don't lose your existing API keys and settings
+  "mounts": [
+    "source=${localEnv:USERPROFILE}/.claude-omniroute,target=/home/vscode/.claude-omniroute,type=bind"
+  ],
+
+  "remoteEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude-omniroute",
+    "ANTHROPIC_BASE_URL": "http://localhost:20128",
+    "ANTHROPIC_AUTH_TOKEN": "sk-16e3f2d70a9008c5-47b92e-2f0be53f",
+    "ANTHROPIC_API_KEY": "dummy-key-to-bypass-login",
+    "ANTHROPIC_MODEL": "harness",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1048576" 
+  }
+}
