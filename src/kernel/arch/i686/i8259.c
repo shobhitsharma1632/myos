@@ -126,7 +126,12 @@ void i8259_Mask(int irq)
 
 void i8259_Unmask(int irq)
 {
-    i8259_SetMask(g_PicMask & ~(1 << irq));
+    uint16_t newMask = g_PicMask & ~(1 << irq);
+    if (irq >= 8)
+    {
+        newMask &= ~(1 << 2); // Unmask IRQ 2 (Master PIC cascade line to Slave PIC)
+    }
+    i8259_SetMask(newMask);
 }
 
 uint16_t i8259_ReadIrqRequestRegister()
