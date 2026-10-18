@@ -237,9 +237,16 @@ make build
 This configures CMake, compiles the bootloader stages, compiles the kernel ELF with global constructors (`crti.o`/`crtn.o`), creates the bootable disk image, and patches the boot sector.
 
 ### 3. Run in QEMU
-```bash
-make run
-```
+- **Text / Debug Console mode (Default):**
+  ```bash
+  make run
+  ```
+- **High-Resolution Graphical Desktop mode:**
+  ```bash
+  make run-gui
+  ```
+  *(Automatically launches a native GUI window if a display server is available, or activates the built-in VNC server on port `5900` / WebSocket `6080` in headless environments).*
+
 Or run directly with Port 0xE9 debug console redirection:
 ```bash
 qemu-system-i386 -drive file=build/main_floppy.img,format=raw,if=ide -debugcon stdio

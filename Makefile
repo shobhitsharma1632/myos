@@ -6,7 +6,7 @@ TOOLCHAIN_DIR := $(PROJECT_ROOT)/toolchain
 BUILD_DIR := build
 TOOLCHAIN_BUILD_DIR := $(PROJECT_ROOT)/toolchain_build
 
-.PHONY: toolchain build run clean
+.PHONY: toolchain build run run-gui clean
 
 toolchain:
 	mkdir -p $(TOOLCHAIN_DIR)
@@ -23,6 +23,23 @@ build:
 
 run:
 	make -C $(BUILD_DIR) run
+
+run-gui:
+	@if [ ! -f $(BUILD_DIR)/main_floppy.img ]; then \
+		$(MAKE) build; \
+	fi
+	@if [ -n "$$DISPLAY" ] && [ "$(VNC)" != "1" ]; then \
+		echo "Launching QEMU with native graphical display window..."; \
+		qemu-system-i386 -drive file=$(BUILD_DIR)/main_floppy.img,format=raw,if=ide -debugcon stdio; \
+	else \
+		echo "================================================================="; \
+		echo "  Headless environment detected (\$$DISPLAY is not set)."; \
+		echo "  Starting QEMU with VNC server on port 5900 (display :0)..."; \
+		echo "  WebSocket VNC enabled on port 6080."; \
+		echo "  Connect your VNC client to localhost:5900 to interact with GUI!"; \
+		echo "================================================================="; \
+		qemu-system-i386 -drive file=$(BUILD_DIR)/main_floppy.img,format=raw,if=ide -vnc 0.0.0.0:0,websocket=6080 -debugcon stdio; \
+	fi
 
 clean:
 	rm -rf $(BUILD_DIR)
