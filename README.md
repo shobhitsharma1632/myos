@@ -12,6 +12,11 @@
                       └───────────────────┬────────────────────┘
                                           │
                       ┌───────────────────▼────────────────────┐
+                      │  MLFQ Preemptive Task Scheduler (HAL)  │
+                      │  3-Level Queues, Stack Switching, ISR  │
+                      └───────────────────┬────────────────────┘
+                                          │
+                      ┌───────────────────▼────────────────────┐
                       │    Kernel Heap (kmalloc / kfree)       │
                       │  Boundary-tag allocator, 8-byte align  │
                       └───────────────────┬────────────────────┘
@@ -83,6 +88,42 @@
   - Bidirectional $O(1)$ block coalescing on `kfree` to prevent external fragmentation.
   - Automatic demand expansion (`kheap_expand`) requesting physical frames via PMM/VMM.
   - Standard primitives: `kmalloc`, `kzalloc`, `kfree`, `krealloc`.
+
+### 4. Task Scheduling Subsystem (MLFQ)
+- **Multi-Level Feedback Queue (MLFQ) Preemptive & Cooperative Scheduler:**
+  - 3 priority levels with distinct time quanta:
+    - **Queue 0 (High / Interactive):** 2 ticks (~20 ms)
+    - **Queue 1 (Medium):** 6 ticks (~60 ms)
+    - **Queue 2 (Low / Batch / CPU-bound):** 15 ticks (~150 ms)
+  - Driven by the Intel 8253/8254 Programmable Interval Timer (PIT) programmed to 100 Hz.
+  - Hardware context switching integrated directly into `isr.asm` (`mov esp, eax`) and `isr.c`.
+  - Forged interrupt stack frames allowing new tasks to bootstrap seamlessly into `Task_Trampoline` with interrupts enabled.
+  - **Rule 4b (Interactive Favoritism):** Tasks that voluntarily yield (`Task_Yield()` via `int $0x81`) before consuming their quantum retain their high priority.
+  - **Rule 4a (Demotion):** Tasks consuming their entire quantum without yielding are demoted down the queue hierarchy.
+  - **Rule 5 (Anti-Starvation Boost):** Every 100 ticks (~1 second), all ready tasks across all queues are elevated back to Queue 0.
+  - **Deferred Stack Reaper (Suicide Paradox Solved):** Dead tasks calling `Task_Exit()` mark themselves terminated; their stacks and TCBs are reclaimed on subsequent scheduling cycles when the CPU is safely executing on another task's stack.
+
+### 5. Input Subsystem & Interactive Command Shell (Phase 9)
+- **PS/2 Keyboard Driver:**
+  - Standard PS/2 controller driver (`keyboard.c`, `keyboard.h`) on ports `0x60` (data) and `0x64` (status/command).
+  - Handles Scan Code Set 1 with press/release states for Left/Right Shift, Caps Lock, and Ctrl.
+  - IRQ 1 handler dynamically registered on the 8259 PIC with automatic interrupt unmasking.
+  - 256-byte circular FIFO ring buffer decoupling hardware interrupt rates from software consumption.
+  - Non-busy-waiting key reader (`i686_Keyboard_WaitChar`) that voluntarily yields CPU (`Task_Yield()`), preserving the shell in MLFQ Queue 0 for instant interactive responsiveness.
+- **VGA Text Driver Upgrades:**
+  - Added in-place destructive backspace (`\b`) handling in `vga_text.c` with cursor repositioning and space clearing.
+- **Interactive Command Shell:**
+  - Autonomous interactive task (`shell.c`, `shell.h`) running in MLFQ Queue 0.
+  - Commands:
+    - `help`: Lists all available commands.
+    - `clear`: Clears VGA screen and resets cursor position.
+    - `ps`: Live table of all active tasks, states, MLFQ queue levels, consumed ticks, yield counts, and preemption counts.
+    - `mem`: Detailed memory report across Physical (PMM), Virtual (VMM), and Kernel Heap subsystems.
+    - `spawn <name> [interactive|compute]`: Dynamically allocates a new worker task and queues it in the MLFQ scheduler.
+    - `kill <pid>`: Dynamically terminates a running task and routes it to the deferred stack reaper.
+    - `stats`: Live MLFQ scheduler metrics.
+    - `echo <text...>`: Echoes arguments to terminal and Port 0xE9.
+    - `reboot`: Sends 8042 keyboard controller CPU reset pulse to reboot the machine.
 
 ---
 
