@@ -1,6 +1,10 @@
 # myOS — 32-Bit x86 Protected Mode Operating System
 
-**myOS** is an educational, modular 32-bit x86 operating system built from the ground up in C and Assembly. It features a complete two-stage bootloader with MBR partition and FAT filesystem support, an ELF32 kernel with C runtime initialization, a modern Hardware Abstraction Layer (HAL), and an enterprise-grade memory management stack (Physical Memory Manager, Virtual Memory Manager with Paging, and a Kernel Heap Allocator).
+**myOS** is an educational, modular 32-bit x86 operating system built from the ground up in C and Assembly. It features a complete two-stage bootloader with MBR partition and FAT filesystem support, an ELF32 kernel with C runtime initialization, a modern Hardware Abstraction Layer (HAL), an enterprise-grade memory management stack (Physical Memory Manager, Virtual Memory Manager with Paging, and a Kernel Heap Allocator), a preemptive Multi-Level Feedback Queue (MLFQ) scheduler, an interactive command shell, and a high-resolution 1024x768 @ 32bpp graphical desktop with mouse support.
+
+<p align="center">
+  <img src="desktop.png" alt="myOS 1024x768 GUI Desktop" width="85%">
+</p>
 
 ---
 
@@ -38,10 +42,12 @@
            ┌──────────────────────────────┼──────────────────────────────┐
            ▼                              ▼                              ▼
 ┌──────────────────────┐      ┌──────────────────────┐      ┌──────────────────────┐
-│  CPU & Interrupts    │      │  I/O & Video Output  │      │  Storage & Storage   │
-│  • GDT / IDT / ISR   │      │  • VGA Text (0xB8000)│      │  • Stage 1 / Stage 2 │
-│  • Modular i8259 PIC │      │  • Port 0xE9 Debug   │      │  • MBR Partitions    │
-│  • Timer (IRQ 0)     │      │  • ANSI Logger       │      │  • FAT12/16/32 Cache │
+│  CPU & Interrupts    │      │  Graphics & Desktop  │      │  Storage & Boot      │
+│  • GDT / IDT / ISR   │      │  • Bochs VBE (32bpp) │      │  • Stage 1 / Stage 2 │
+│  • Modular i8259 PIC │      │  • Window Compositor │      │  • MBR Partitions    │
+│  • Timer (IRQ 0)     │      │  • 2D Graphics & Font│      │  • FAT12/16/32 Cache │
+│  • Keyboard (IRQ 1)  │      │  • VGA Text (0xB8000)│      │  • ELF32 Loader      │
+│  • PS/2 Mouse (IRQ12)│      │  • Port 0xE9 Debug   │      │  • ANSI Logger       │
 └──────────────────────┘      └──────────────────────┘      └──────────────────────┘
 ```
 
@@ -123,7 +129,31 @@
     - `kill <pid>`: Dynamically terminates a running task and routes it to the deferred stack reaper.
     - `stats`: Live MLFQ scheduler metrics.
     - `echo <text...>`: Echoes arguments to terminal and Port 0xE9.
+    - `gui`: Launches high-resolution 1024x768 GUI desktop.
     - `reboot`: Sends 8042 keyboard controller CPU reset pulse to reboot the machine.
+
+### 6. High-Resolution Graphical User Interface (GUI) & Mouse Subsystem (Phase 10)
+- **Bochs Graphics Adapter (BGA) & Linear Framebuffer (LFB):**
+  - High-resolution video driver (`bga.c`, `bga.h`) programming ports `0x01CE` and `0x01CF`.
+  - Configures **1024x768 @ 32bpp** true-color display mode.
+  - Automatically queries PCI configuration space (`pci.c`, `pci.h`) on ports `0xCF8`/`0xCFC` to detect Device `0x1234:0x1111` and map its physical BAR0 framebuffer (`0xFD000000`).
+  - Maps 3 MiB (768 pages) of video memory dynamically into the virtual address space using `VMM_MapPage`.
+- **PS/2 Mouse Controller Driver:**
+  - Standard PS/2 mouse driver (`mouse.c`, `mouse.h`) on IRQ 12 with automatic Master PIC cascade (IRQ 2) unmasking.
+  - Decodes 3-byte hardware packets, tracks button states (Left, Right, Middle), and tracks `(x, y)` coordinates clamped to screen dimensions.
+- **2D Graphics Engine & Font System:**
+  - Non-tearing double-buffering architecture allocating backbuffer in the Kernel Heap (`gfx.c`, `gfx.h`).
+  - Software rendering primitives: lines (Bresenham's algorithm), rectangles, circles, alpha-blended fills, and screen clipping.
+  - Embedded 8x8 ASCII monochrome font table rendering text across windows and system menus.
+  - Software mouse cursor arrow sprite with transparent background and black outline.
+- **Desktop Window Manager & Compositor:**
+  - Autonomous compositor task (`gui.c`, `gui.h`) running concurrently in MLFQ Queue 0.
+  - Sleek modern dark slate desktop with a bottom taskbar, "myOS" Start badge, active window tabs, and a live memory/scheduler status tray.
+  - Draggable, interactive windows with drop shadows, colored title bars, client clipping, and close buttons:
+    - **MLFQ Task Scheduler Monitor:** Live graphical progress meters for Queues 0, 1, and 2.
+    - **System Memory Diagnostics:** Visual bar meters for Physical RAM (PMM), Virtual Memory (VMM), and Kernel Dynamic Heap.
+    - **Terminal / Virtual TTY Window:** System diagnostic and event log.
+    - **About myOS Window:** System specifications and architecture details.
 
 ---
 
