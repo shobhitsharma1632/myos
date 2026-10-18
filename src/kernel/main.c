@@ -15,6 +15,36 @@ void timer(Registers* regs)
     debugc('.');
 }
 
+static void Task_ShellDemo(void)
+{
+    // Wait for shell task to initialize and print prompt
+    for (int i = 0; i < 5; i++) Task_Yield();
+
+    const char* demoCmds[] = {
+        "help",
+        "mem",
+        "echo Hello from myOS Phase 9 Shell!",
+        "spawn worker interactive",
+        "ps"
+    };
+
+    for (int c = 0; c < 5; c++)
+    {
+        const char* cmd = demoCmds[c];
+        log_info("ShellDemo", "Simulating keyboard input: '%s'", cmd);
+        for (int i = 0; cmd[i]; i++)
+        {
+            i686_Keyboard_InjectChar(cmd[i]);
+            Task_Yield();
+        }
+        i686_Keyboard_InjectChar('\n');
+        for (int i = 0; i < 15; i++) Task_Yield();
+    }
+
+    log_info("ShellDemo", "Automated shell input test complete. Shell is waiting for user keystrokes.");
+    Task_Exit();
+}
+
 void start(BootParams* bootParams)
 {
     // Call global constructors
@@ -165,13 +195,26 @@ void start(BootParams* bootParams)
         log_err("Test", "Failed to allocate 1.5 MB buffer!");
     }
 
-    log_info("Main", "Kernel initialization complete.");
+    log_info("Main", "Kernel memory management initialized.");
 
-    printf("Hello from kernel!\n");
-    printf("Kernel successfully booted with Phase 5 PMM, Phase 6 VMM, and Phase 7 Kernel Heap.\n");
+    printf("\n=======================================================\n");
+    printf("  myOS Phase 9: PS/2 Keyboard Driver & Command Shell\n");
+    printf("  Interactive Terminal Online! Type 'help' for commands.\n");
+    printf("=======================================================\n\n");
 
-    i686_IRQ_RegisterHandler(0, timer);
+    // Initialize MLFQ Task Scheduler
+    Task_Initialize();
 
-end:
-    for (;;);
+    // Spawn Phase 9 Interactive Command Shell Task
+    Shell_Initialize();
+
+    // Spawn Shell Automated Demonstrator Task
+    Task_Create("ShellDemo", Task_ShellDemo);
+
+    log_info("Main", "Kernel initialization complete. Shell running in MLFQ Queue 0.");
+
+    while (1)
+    {
+        Task_Yield();
+    }
 }
