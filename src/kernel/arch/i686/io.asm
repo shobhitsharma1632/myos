@@ -19,6 +19,11 @@ i686_Panic:
     cli 
     hlt
 
+global i686_Halt
+i686_Halt:
+    hlt
+    ret
+
 global i686_EnableInterrupts
 i686_EnableInterrupts:
     sti

@@ -40,7 +40,7 @@ isr_common:
 
     push esp            ; pass pointer to stack to C, so we can access all the pushed information
     call i686_ISR_Handler
-    add esp, 4          
+    mov esp, eax        ; switch stack to returned Registers* pointer (handles context switch)          
 
     pop eax             ; restore old segment
     mov ds, ax

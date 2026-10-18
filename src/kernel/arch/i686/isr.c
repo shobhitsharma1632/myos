@@ -4,6 +4,7 @@
 #include "io.h"
 #include <stdio.h>
 #include <stddef.h>
+#include <hal/task.h>
 
 ISRHandler g_ISRHandlers[256];
 
@@ -53,13 +54,15 @@ void i686_ISR_Initialize()
     i686_IDT_DisableGate(0x80);
 }
 
-void __attribute__((cdecl)) i686_ISR_Handler(Registers* regs)
+Registers* __attribute__((cdecl)) i686_ISR_Handler(Registers* regs)
 {
     if (g_ISRHandlers[regs->interrupt] != NULL)
         g_ISRHandlers[regs->interrupt](regs);
     else if (regs->interrupt >= 32)
-        printf("Unhandled interrupt %d!\n", regs->interrupt);
-
+    {
+        if (regs->interrupt != 129)
+            printf("Unhandled interrupt %d!\n", regs->interrupt);
+    }
     else
     {
         printf("Unhandled exception %d %s\n", regs->interrupt, g_Exceptions[regs->interrupt]);
@@ -75,6 +78,13 @@ void __attribute__((cdecl)) i686_ISR_Handler(Registers* regs)
         printf("KERNEL PANIC!\n");
         i686_Panic();
     }
+
+    if (Task_IsActive() && (regs->interrupt == 32 || regs->interrupt == 129))
+    {
+        return Task_Schedule(regs);
+    }
+
+    return regs;
 }
 
 void i686_ISR_RegisterHandler(int interrupt, ISRHandler handler)

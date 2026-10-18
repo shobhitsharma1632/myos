@@ -14,3 +14,4 @@ typedef void (*ISRHandler)(Registers* regs);
 
 void i686_ISR_Initialize();
 void i686_ISR_RegisterHandler(int interrupt, ISRHandler handler);
+Registers* __attribute__((cdecl)) i686_ISR_Handler(Registers* regs);
