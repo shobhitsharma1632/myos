@@ -12,6 +12,9 @@ void fprint_buffer(fd_t file, const char* msg, const void* buffer, uint32_t coun
 void putc(char c);
 void puts(const char* str);
 void printf(const char* fmt, ...);
+int vsnprintf(char* buffer, size_t size, const char* fmt, va_list args);
+int snprintf(char* buffer, size_t size, const char* fmt, ...);
+int sprintf(char* buffer, const char* fmt, ...);
 void print_buffer(const char* msg, const void* buffer, uint32_t count);
 
 void debugc(char c);
