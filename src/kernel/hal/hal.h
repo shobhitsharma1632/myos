@@ -5,6 +5,11 @@
 #include <hal/heap.h>
 #include <hal/task.h>
 #include <hal/shell.h>
+#include <hal/gfx.h>
+#include <hal/gui.h>
 #include <arch/i686/keyboard.h>
+#include <arch/i686/pci.h>
+#include <arch/i686/bga.h>
+#include <arch/i686/mouse.h>
 
 void HAL_Initialize();

@@ -6,6 +6,8 @@
 #include <hal/pmm.h>
 #include <hal/vmm.h>
 #include <hal/heap.h>
+#include <hal/gui.h>
+#include <arch/i686/bga.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -174,6 +176,7 @@ void Shell_Execute(char* cmdLine)
         shell_print("  spawn <name> [type] - Launch worker ('interactive' or 'compute')\n");
         shell_print("  kill <pid>          - Terminate task by Process ID\n");
         shell_print("  stats               - Dump live MLFQ scheduling metrics\n");
+        shell_print("  gui                 - Launch high-resolution 1024x768 GUI desktop\n");
         shell_print("  echo <text...>      - Print text arguments to screen\n");
         shell_print("  reboot              - Reboot the computer\n\n");
     }
@@ -254,6 +257,30 @@ void Shell_Execute(char* cmdLine)
             shell_print("%s%s", argv[i], (i == argc - 1) ? "" : " ");
         }
         shell_print("\n");
+    }
+    else if (str_cmp(cmd, "gui") == 0)
+    {
+        if (!BGA_IsAvailable())
+        {
+            shell_print("Error: Bochs Graphics Adapter (BGA) not detected on this hardware.\n");
+        }
+        else if (GUI_IsRunning())
+        {
+            shell_print("GUI desktop is already active!\n");
+        }
+        else
+        {
+            shell_print("Initializing Bochs VBE 1024x768 @ 32bpp graphics desktop...\n");
+            if (GUI_Initialize(1024, 768))
+            {
+                GUI_Start();
+                shell_print("GUI Compositor launched successfully in MLFQ Queue 0.\n");
+            }
+            else
+            {
+                shell_print("Failed to initialize GUI graphics mode!\n");
+            }
+        }
     }
     else if (str_cmp(cmd, "reboot") == 0)
     {

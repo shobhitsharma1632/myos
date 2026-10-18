@@ -23,12 +23,13 @@ static void Task_ShellDemo(void)
     const char* demoCmds[] = {
         "help",
         "mem",
-        "echo Hello from myOS Phase 9 Shell!",
+        "echo Hello from myOS Phase 10 GUI!",
         "spawn worker interactive",
-        "ps"
+        "ps",
+        "gui"
     };
 
-    for (int c = 0; c < 5; c++)
+    for (int c = 0; c < 6; c++)
     {
         const char* cmd = demoCmds[c];
         log_info("ShellDemo", "Simulating keyboard input: '%s'", cmd);
@@ -41,7 +42,27 @@ static void Task_ShellDemo(void)
         for (int i = 0; i < 15; i++) Task_Yield();
     }
 
-    log_info("ShellDemo", "Automated shell input test complete. Shell is waiting for user keystrokes.");
+    // Wait for GUI compositor to render initial desktop
+    for (int i = 0; i < 10; i++) Task_Yield();
+
+    // Simulate mouse interaction: Click and drag MLFQ window title bar
+    log_info("ShellDemo", "Simulating mouse movement and title bar drag...");
+    Mouse_SetPosition(120, 50); // Inside title bar of MLFQ Scheduler window
+    Mouse_InjectEvent(0, 0, true, false, false); // Left Button Down
+    for (int i = 0; i < 5; i++) Task_Yield();
+
+    // Drag window dynamically by 150 pixels right and 50 pixels down
+    for (int step = 0; step < 10; step++)
+    {
+        Mouse_InjectEvent(15, 5, true, false, false);
+        Task_Yield();
+    }
+
+    // Release mouse button
+    Mouse_InjectEvent(0, 0, false, false, false); // Left Button Up
+    for (int i = 0; i < 10; i++) Task_Yield();
+
+    log_info("ShellDemo", "Automated Phase 10 GUI test complete! Desktop and compositor active.");
     Task_Exit();
 }
 
@@ -198,8 +219,8 @@ void start(BootParams* bootParams)
     log_info("Main", "Kernel memory management initialized.");
 
     printf("\n=======================================================\n");
-    printf("  myOS Phase 9: PS/2 Keyboard Driver & Command Shell\n");
-    printf("  Interactive Terminal Online! Type 'help' for commands.\n");
+    printf("  myOS Phase 10: High-Resolution GUI & Window Compositor\n");
+    printf("  1024x768 @ 32bpp Desktop, PS/2 Mouse & Command Shell Online!\n");
     printf("=======================================================\n\n");
 
     // Initialize MLFQ Task Scheduler
