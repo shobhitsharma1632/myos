@@ -180,6 +180,24 @@
   - Privileged instructions (`cli`, `inb`, `outb`) trigger `#GP` (General Protection Fault, int 13).
   - Fault containment: offending user tasks are cleanly killed via `Task_Exit()` without kernel panics.
 
+### 8. Storage Device Subsystem, FAT Filesystem & VFS (Phase 12)
+- **IDE / ATA PIO Controller Driver:**
+  - Direct hardware access on Primary ATA Bus (`0x1F0`–`0x1F7`, Control `0x3F6`).
+  - 28-bit LBA Programmed I/O supporting `IDENTIFY` (`0xEC`), `READ SECTORS` (`0x20`), `WRITE SECTORS` (`0x30`), and `CACHE FLUSH` (`0xE7`).
+  - Status register polling (`BSY`, `DRQ`, `ERR`, `DF`) with 400ns recovery delay.
+- **Kernel FAT Filesystem Driver:**
+  - Mounts FAT12/FAT16 filesystems directly from disk sector 0 (BPB).
+  - High-performance FAT table sector caching with automatic mirror synchronization across both FAT tables.
+  - Dynamic cluster allocation, linked-list traversal, path resolution, and file truncation/resizing.
+- **Virtual File System (VFS) Layer:**
+  - Standard POSIX file descriptor table: `0` (stdin), `1` (stdout), `2` (stderr), `3` (debug), `4`..`19` (disk files).
+  - Functions: `vfs_open`, `vfs_read`, `vfs_write`, `vfs_close`, `vfs_readdir`, `vfs_stat`, `vfs_touch`.
+- **User Mode VFS Syscalls:**
+  - Seamlessly bridges user mode to storage: `SYS_OPEN` (10), `SYS_CLOSE` (11), `SYS_READ_FILE` (12), `SYS_WRITE_FILE` (13), `SYS_READDIR` (14), `SYS_STAT` (15).
+- **Desktop File Explorer & Storage Shell Commands:**
+  - Interactive Desktop Window displaying directory listings with file icons and sizes.
+  - Shell commands: `disk` (hardware inspection), `ls [path]`, `cat <file>`, `touch <file>`, `write <file> <text...>`.
+
 ---
 
 ## Memory Map Layout

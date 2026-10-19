@@ -14,6 +14,12 @@
 #define SYS_GETTICKS    6   // Get system timer ticks since boot
 #define SYS_SBRK        7   // Adjust user heap break (ebx = increment in bytes)
 #define SYS_BEEP        8   // PC speaker beep (ebx = freq in Hz, ecx = duration in ms)
+#define SYS_OPEN        10  // Open file (ebx = path, ecx = flags)
+#define SYS_CLOSE       11  // Close file (ebx = fd)
+#define SYS_READ_FILE   12  // Read file (ebx = fd, ecx = buf, edx = count)
+#define SYS_WRITE_FILE  13  // Write file (ebx = fd, ecx = buf, edx = count)
+#define SYS_READDIR     14  // Read directory (ebx = path, ecx = index, edx = entry ptr)
+#define SYS_STAT        15  // File stat (ebx = path, ecx = stat ptr)
 
 // Kernel Syscall Gateway Interface
 void Syscall_Initialize(void);
@@ -102,4 +108,34 @@ static inline void* sys_sbrk(int32_t increment)
 static inline int32_t sys_beep(uint32_t freq, uint32_t duration_ms)
 {
     return syscall2(SYS_BEEP, freq, duration_ms);
+}
+
+static inline int32_t sys_open(const char* path, int flags)
+{
+    return syscall2(SYS_OPEN, (uint32_t)path, (uint32_t)flags);
+}
+
+static inline int32_t sys_close(int fd)
+{
+    return syscall1(SYS_CLOSE, (uint32_t)fd);
+}
+
+static inline int32_t sys_read_file(int fd, void* buf, size_t count)
+{
+    return syscall3(SYS_READ_FILE, (uint32_t)fd, (uint32_t)buf, (uint32_t)count);
+}
+
+static inline int32_t sys_write_file(int fd, const void* buf, size_t count)
+{
+    return syscall3(SYS_WRITE_FILE, (uint32_t)fd, (uint32_t)buf, (uint32_t)count);
+}
+
+static inline int32_t sys_readdir(const char* path, size_t index, void* entry)
+{
+    return syscall3(SYS_READDIR, (uint32_t)path, (uint32_t)index, (uint32_t)entry);
+}
+
+static inline int32_t sys_stat(const char* path, void* st)
+{
+    return syscall2(SYS_STAT, (uint32_t)path, (uint32_t)st);
 }

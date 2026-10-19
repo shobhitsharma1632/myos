@@ -5,6 +5,7 @@
 #include <hal/task.h>
 #include <hal/vmm.h>
 #include <hal/pmm.h>
+#include <hal/vfs.h>
 #include <stdio.h>
 #include <debug.h>
 
@@ -182,6 +183,81 @@ void Syscall_Handler(Registers* regs)
             uint32_t duration_ms = arg2;
             log_info(MODULE, "[SYS_BEEP] freq=%u Hz, duration=%u ms", freq, duration_ms);
             regs->eax = 0;
+            break;
+        }
+
+        case SYS_OPEN:
+        {
+            const char* path = (const char*)arg1;
+            int flags = (int)arg2;
+            if (!path)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+            regs->eax = (uint32_t)vfs_open(path, flags);
+            break;
+        }
+
+        case SYS_CLOSE:
+        {
+            int fd = (int)arg1;
+            regs->eax = (uint32_t)vfs_close(fd);
+            break;
+        }
+
+        case SYS_READ_FILE:
+        {
+            int fd = (int)arg1;
+            void* buf = (void*)arg2;
+            size_t count = (size_t)arg3;
+            if (!buf)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+            regs->eax = (uint32_t)vfs_read(fd, buf, count);
+            break;
+        }
+
+        case SYS_WRITE_FILE:
+        {
+            int fd = (int)arg1;
+            const void* buf = (const void*)arg2;
+            size_t count = (size_t)arg3;
+            if (!buf)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+            regs->eax = (uint32_t)vfs_write(fd, buf, count);
+            break;
+        }
+
+        case SYS_READDIR:
+        {
+            const char* path = (const char*)arg1;
+            size_t index = (size_t)arg2;
+            VFS_DirEntry* entry = (VFS_DirEntry*)arg3;
+            if (!entry)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+            regs->eax = (uint32_t)vfs_readdir(path, index, entry);
+            break;
+        }
+
+        case SYS_STAT:
+        {
+            const char* path = (const char*)arg1;
+            VFS_Stat* st = (VFS_Stat*)arg2;
+            if (!st)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+            regs->eax = (uint32_t)vfs_stat(path, st);
             break;
         }
 

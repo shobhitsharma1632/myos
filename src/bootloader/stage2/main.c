@@ -58,6 +58,7 @@ void __attribute__((cdecl)) start(uint16_t bootDrive, void* partition)
 
     // Execute kernel passing boot parameters
     printf("Executing kernel...\r\n");
+    __asm__ volatile("cli");
     kernelEntry(&g_BootParams);
 
 end:

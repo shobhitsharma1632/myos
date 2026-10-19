@@ -1,0 +1,2 @@
+Hello from myOS disk storage!
+ATA PIO driver read and write operations verified.

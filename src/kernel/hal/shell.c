@@ -10,6 +10,10 @@
 #include <hal/user_programs.h>
 #include <hal/syscall.h>
 #include <arch/i686/bga.h>
+#include <arch/i686/ata.h>
+#include <hal/fat.h>
+#include <hal/vfs.h>
+#include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -177,6 +181,11 @@ void Shell_Execute(char* cmdLine)
         shell_print("  mem                 - Display PMM, VMM, and Kernel Heap status\n");
         shell_print("  spawn <name> [type] - Launch worker ('interactive' or 'compute')\n");
         shell_print("  user <subcmd>       - Ring 3 user mode commands (hello, count, test-gp, test-pf, test-all)\n");
+        shell_print("  disk                - Show ATA drive and FAT filesystem status\n");
+        shell_print("  ls [path]           - List files and directories on disk\n");
+        shell_print("  cat <file>          - Read and display file contents\n");
+        shell_print("  touch <file>        - Create a new empty file\n");
+        shell_print("  write <file> <text> - Write or append text to a file\n");
         shell_print("  kill <pid>          - Terminate task by Process ID\n");
         shell_print("  stats               - Dump live MLFQ scheduling metrics\n");
         shell_print("  gui                 - Launch high-resolution 1024x768 GUI desktop\n");
@@ -339,6 +348,129 @@ void Shell_Execute(char* cmdLine)
         else
         {
             shell_print("Unknown user subcommand '%s'. Type 'user' for options.\n", sub);
+        }
+    }
+    else if (str_cmp(cmd, "disk") == 0)
+    {
+        shell_print("\n=== Storage Device Subsystem (ATA PIO) ===\n");
+        const ATA_DeviceInfo* dev = ATA_GetDevice();
+        if (dev && dev->present)
+        {
+            shell_print("  Primary Master Drive : Detected (IDE Channel 0)\n");
+            shell_print("  Model Identifier     : %s\n", dev->model);
+            shell_print("  Serial Number        : %s\n", dev->serial);
+            shell_print("  Total Sectors (LBA28): %u sectors\n", dev->total_sectors);
+            shell_print("  Sector Size          : %u bytes\n", ATA_SECTOR_SIZE);
+            shell_print("  Storage Capacity     : %u MB (or %u KB)\n",
+                        dev->total_mb, (dev->total_sectors * ATA_SECTOR_SIZE) / 1024);
+            shell_print("  48-bit LBA Supported : %s\n", dev->supports_lba48 ? "Yes" : "No");
+            shell_print("  Filesystem Mount     : %s\n\n", FAT_IsMounted() ? "FAT Mounted (/)" : "Unmounted");
+        }
+        else
+        {
+            shell_print("  No ATA drive detected on Primary Master.\n\n");
+        }
+    }
+    else if (str_cmp(cmd, "ls") == 0)
+    {
+        const char* path = (argc > 1) ? argv[1] : "/";
+        shell_print("\nDirectory listing of '%s':\n", path);
+        shell_print("  TYPE    SIZE (BYTES)  NAME\n");
+        shell_print("  --------------------------------------\n");
+
+        VFS_DirEntry entry;
+        size_t index = 0;
+        int count = 0;
+
+        while (vfs_readdir(path, index, &entry) == 0)
+        {
+            if (entry.is_directory)
+            {
+                shell_print("  <DIR>   %12s  %s\n", "-", entry.name);
+            }
+            else
+            {
+                shell_print("  <FILE>  %12u  %s\n", entry.size, entry.name);
+            }
+            index++;
+            count++;
+        }
+        shell_print("  --------------------------------------\n");
+        shell_print("  Total entries: %d\n\n", count);
+    }
+    else if (str_cmp(cmd, "cat") == 0)
+    {
+        if (argc < 2)
+        {
+            shell_print("Usage: cat <filepath>\n");
+        }
+        else
+        {
+            const char* path = argv[1];
+            fd_t fd = vfs_open(path, VFS_O_RDONLY);
+            if (fd < 0)
+            {
+                shell_print("cat: cannot open '%s': No such file or directory\n", path);
+            }
+            else
+            {
+                char buf[256];
+                int bytesRead;
+                while ((bytesRead = vfs_read(fd, buf, sizeof(buf) - 1)) > 0)
+                {
+                    buf[bytesRead] = '\0';
+                    shell_print("%s", buf);
+                }
+                shell_putc('\n');
+                vfs_close(fd);
+            }
+        }
+    }
+    else if (str_cmp(cmd, "touch") == 0)
+    {
+        if (argc < 2)
+        {
+            shell_print("Usage: touch <filepath>\n");
+        }
+        else
+        {
+            const char* path = argv[1];
+            if (vfs_touch(path) == 0)
+            {
+                shell_print("Created file '%s'.\n", path);
+            }
+            else
+            {
+                shell_print("touch: failed to create '%s'\n", path);
+            }
+        }
+    }
+    else if (str_cmp(cmd, "write") == 0)
+    {
+        if (argc < 3)
+        {
+            shell_print("Usage: write <filepath> <text...>\n");
+        }
+        else
+        {
+            const char* path = argv[1];
+            fd_t fd = vfs_open(path, VFS_O_WRONLY | VFS_O_CREAT | VFS_O_APPEND);
+            if (fd < 0)
+            {
+                shell_print("write: cannot open '%s'\n", path);
+            }
+            else
+            {
+                for (int i = 2; i < argc; i++)
+                {
+                    vfs_write(fd, argv[i], strlen(argv[i]));
+                    if (i + 1 < argc)
+                        vfs_write(fd, " ", 1);
+                }
+                vfs_write(fd, "\n", 1);
+                vfs_close(fd);
+                shell_print("Successfully wrote data to '%s'.\n", path);
+            }
         }
     }
     else if (str_cmp(cmd, "reboot") == 0)

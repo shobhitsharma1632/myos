@@ -35,9 +35,11 @@ if(MKFS_FAT_EXECUTABLE AND MCOPY_EXECUTABLE AND MMD_EXECUTABLE AND DD_EXECUTABLE
         COMMAND ${DD_EXECUTABLE} if=${BOOTLOADER_STAGE2_BIN} of=${FLOPPY_IMAGE} bs=512 seek=1 conv=notrunc
         COMMAND ${MMD_EXECUTABLE} -i ${FLOPPY_IMAGE} "::boot"
         COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} ${KERNEL_ELF} "::boot/kernel.elf"
+        COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_SOURCE_DIR}/disk_files/readme.txt" "::readme.txt"
+        COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_SOURCE_DIR}/disk_files/hello.txt" "::hello.txt"
         COMMAND ${PYTHON3_EXECUTABLE} ${INSTALL_BOOTLOADER_PY} ${FLOPPY_IMAGE} ${BOOTLOADER_STAGE1_BIN} ${BOOTLOADER_STAGE1_MAP} ${BOOTLOADER_STAGE2_BIN} 0
         DEPENDS bootloader_stage1 bootloader_stage2 kernel
-        COMMENT "Creating floppy image with patched bootloader"
+        COMMENT "Creating floppy image with patched bootloader and sample files"
     )
 
     find_program(QEMU_I386_EXECUTABLE NAMES qemu-system-i386)

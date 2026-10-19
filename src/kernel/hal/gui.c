@@ -6,6 +6,9 @@
 #include <hal/pmm.h>
 #include <hal/vmm.h>
 #include <hal/heap.h>
+#include <hal/vfs.h>
+#include <hal/fat.h>
+#include <arch/i686/ata.h>
 #include <stdio.h>
 #include <debug.h>
 #include <stdbool.h>
@@ -33,6 +36,7 @@ static void Draw_SchedulerWindow(GUI_Window* win);
 static void Draw_MemoryWindow(GUI_Window* win);
 static void Draw_ConsoleWindow(GUI_Window* win);
 static void Draw_AboutWindow(GUI_Window* win);
+static void Draw_FileExplorerWindow(GUI_Window* win);
 
 GUI_Window* GUI_CreateWindow(const char* title, int32_t x, int32_t y, int32_t width, int32_t height, GUI_DrawCallback onDraw)
 {
@@ -327,6 +331,73 @@ static void Draw_AboutWindow(GUI_Window* win)
     GFX_DrawString(x, y, "Click and drag any window title bar to move!", GFX_COLOR_AMBER, GFX_COLOR_TRANSPARENT);
 }
 
+// Window Content: File Explorer
+static void Draw_FileExplorerWindow(GUI_Window* win)
+{
+    int32_t x = win->x + 12;
+    int32_t y = win->y + TITLEBAR_HEIGHT + 10;
+
+    GFX_DrawString(x, y, "VFS File Explorer: /", GFX_COLOR_CYAN, GFX_COLOR_TRANSPARENT);
+    y += 16;
+
+    GFX_DrawLine(x, y, x + win->width - 24, y, 0x00334155);
+    y += 8;
+
+    GFX_DrawString(x, y, "TYPE", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+    GFX_DrawString(x + 55, y, "NAME", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+    GFX_DrawString(x + 220, y, "SIZE", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+    y += 14;
+
+    GFX_DrawLine(x, y, x + win->width - 24, y, 0x001E293B);
+    y += 8;
+
+    VFS_DirEntry entry;
+    size_t index = 0;
+    int items = 0;
+
+    while (vfs_readdir("/", index, &entry) == 0 && items < 8)
+    {
+        if (entry.is_directory)
+        {
+            GFX_FillRect(x, y - 1, 42, 12, 0x00854D0E);
+            GFX_DrawString(x + 4, y, "[DIR]", GFX_COLOR_AMBER, GFX_COLOR_TRANSPARENT);
+            GFX_DrawString(x + 55, y, entry.name, GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+            GFX_DrawString(x + 220, y, "<DIR>", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+        }
+        else
+        {
+            GFX_FillRect(x, y - 1, 42, 12, 0x00065F46);
+            GFX_DrawString(x + 4, y, "[FILE]", GFX_COLOR_EMERALD, GFX_COLOR_TRANSPARENT);
+            GFX_DrawString(x + 55, y, entry.name, GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+
+            char sizeBuf[32];
+            snprintf(sizeBuf, sizeof(sizeBuf), "%u bytes", entry.size);
+            GFX_DrawString(x + 220, y, sizeBuf, GFX_COLOR_CYAN, GFX_COLOR_TRANSPARENT);
+        }
+
+        y += 16;
+        index++;
+        items++;
+    }
+
+    // Bottom status bar in explorer
+    int32_t statusY = win->y + win->height - 24;
+    GFX_FillRect(win->x + 2, statusY, win->width - 4, 22, 0x00111827);
+    GFX_DrawLine(win->x + 2, statusY, win->x + win->width - 2, statusY, 0x00334155);
+
+    const ATA_DeviceInfo* dev = ATA_GetDevice();
+    char devInfo[64];
+    if (dev && dev->present)
+    {
+        snprintf(devInfo, sizeof(devInfo), "Storage: ATA Primary Master (%u MB) | FAT12", dev->total_mb);
+    }
+    else
+    {
+        snprintf(devInfo, sizeof(devInfo), "Storage: No device");
+    }
+    GFX_DrawString(win->x + 10, statusY + 5, devInfo, GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+}
+
 void GUI_Render(void)
 {
     // 1. Draw desktop background & taskbar
@@ -459,10 +530,11 @@ bool GUI_Initialize(uint32_t width, uint32_t height)
     i686_Mouse_Initialize(width, height);
 
     // 3. Create default desktop windows
-    GUI_CreateWindow("MLFQ Scheduler", 40, 40, 460, 240, Draw_SchedulerWindow);
-    GUI_CreateWindow("System Memory", 520, 40, 460, 240, Draw_MemoryWindow);
-    GUI_CreateWindow("Terminal Log", 40, 310, 460, 260, Draw_ConsoleWindow);
-    GUI_CreateWindow("About myOS", 520, 310, 460, 260, Draw_AboutWindow);
+    GUI_CreateWindow("MLFQ Scheduler", 30, 30, 460, 230, Draw_SchedulerWindow);
+    GUI_CreateWindow("System Memory", 520, 30, 460, 230, Draw_MemoryWindow);
+    GUI_CreateWindow("Terminal Log", 30, 280, 460, 250, Draw_ConsoleWindow);
+    GUI_CreateWindow("About myOS", 520, 280, 460, 250, Draw_AboutWindow);
+    GUI_CreateWindow("File Explorer (/)", 240, 160, 520, 300, Draw_FileExplorerWindow);
 
     g_GuiRunning = true;
     log_info(MODULE, "GUI Subsystem successfully initialized!");

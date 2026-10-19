@@ -43,6 +43,9 @@ entry:
     mov ax, 0x10
     mov ds, ax
     mov ss, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
 
     ; DEBUG: We're in protected mode but int 10h won't work anymore
     ; We'll print during C code instead
