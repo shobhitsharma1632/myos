@@ -67,26 +67,50 @@ typedef enum
 }
 
 GDTEntry g_GDT[] = {
-    // NULL descriptor
+    // 0x00: NULL descriptor
     GDT_ENTRY(0, 0, 0, 0),
 
-    // Kernel 32-bit code segment
+    // 0x08: Kernel 32-bit code segment (Ring 0, 4 GiB limit)
     GDT_ENTRY(0,
               0xFFFFF,
               GDT_ACCESS_PRESENT | GDT_ACCESS_RING0 | GDT_ACCESS_CODE_SEGMENT | GDT_ACCESS_CODE_READABLE,
               GDT_FLAG_32BIT | GDT_FLAG_GRANULARITY_4K),
 
-    // Kernel 32-bit data segment
+    // 0x10: Kernel 32-bit data segment (Ring 0, 4 GiB limit)
     GDT_ENTRY(0,
               0xFFFFF,
               GDT_ACCESS_PRESENT | GDT_ACCESS_RING0 | GDT_ACCESS_DATA_SEGMENT | GDT_ACCESS_DATA_WRITEABLE,
               GDT_FLAG_32BIT | GDT_FLAG_GRANULARITY_4K),
 
+    // 0x18: User 32-bit code segment (Ring 3, DPL 3, 4 GiB limit)
+    GDT_ENTRY(0,
+              0xFFFFF,
+              GDT_ACCESS_PRESENT | GDT_ACCESS_RING3 | GDT_ACCESS_CODE_SEGMENT | GDT_ACCESS_CODE_READABLE,
+              GDT_FLAG_32BIT | GDT_FLAG_GRANULARITY_4K),
+
+    // 0x20: User 32-bit data segment (Ring 3, DPL 3, 4 GiB limit)
+    GDT_ENTRY(0,
+              0xFFFFF,
+              GDT_ACCESS_PRESENT | GDT_ACCESS_RING3 | GDT_ACCESS_DATA_SEGMENT | GDT_ACCESS_DATA_WRITEABLE,
+              GDT_FLAG_32BIT | GDT_FLAG_GRANULARITY_4K),
+
+    // 0x28: TSS descriptor (initialized dynamically in TSS_Initialize)
+    GDT_ENTRY(0, 0, 0, 0),
 };
 
 GDTDescriptor g_GDTDescriptor = { sizeof(g_GDT) - 1, g_GDT};
 
 void __attribute__((cdecl)) i686_GDT_Load(GDTDescriptor* descriptor, uint16_t codeSegment, uint16_t dataSegment);
+
+void i686_GDT_SetEntry(int index, uint32_t base, uint32_t limit, uint8_t access, uint8_t flags)
+{
+    g_GDT[index].LimitLow = GDT_LIMIT_LOW(limit);
+    g_GDT[index].BaseLow = GDT_BASE_LOW(base);
+    g_GDT[index].BaseMiddle = GDT_BASE_MIDDLE(base);
+    g_GDT[index].Access = access;
+    g_GDT[index].FlagsLimitHi = GDT_FLAGS_LIMIT_HI(limit, flags);
+    g_GDT[index].BaseHigh = GDT_BASE_HIGH(base);
+}
 
 void i686_GDT_Initialize()
 {

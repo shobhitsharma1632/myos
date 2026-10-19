@@ -129,6 +129,7 @@
     - `kill <pid>`: Dynamically terminates a running task and routes it to the deferred stack reaper.
     - `stats`: Live MLFQ scheduler metrics.
     - `echo <text...>`: Echoes arguments to terminal and Port 0xE9.
+    - `user <subcmd>`: Ring 3 user mode commands (`hello`, `count`, `test-gp`, `test-pf`, `test-all`).
     - `gui`: Launches high-resolution 1024x768 GUI desktop.
     - `reboot`: Sends 8042 keyboard controller CPU reset pulse to reboot the machine.
 
@@ -155,6 +156,30 @@
     - **Terminal / Virtual TTY Window:** System diagnostic and event log.
     - **About myOS Window:** System specifications and architecture details.
 
+### 7. Ring 3 User Mode, TSS & Syscall Subsystem (Phase 11)
+- **Hardware Privilege Separation:**
+  - Configured GDT with Ring 3 User Code Segment (`0x18 | 3 = 0x1B`, DPL 3) and User Data Segment (`0x20 | 3 = 0x23`, DPL 3).
+  - Implemented 32-bit Task State Segment (`tss.c`, `tss.h`) descriptor (`0x28`) and loaded Task Register (`TR`) via `i686_LTR`.
+  - Dynamically updates TSS `esp0` kernel stack pointer during context switches (`TSS_SetKernelStack`) to guarantee isolated kernel stack frames upon Ring 3 -> Ring 0 transitions.
+- **System Call Subsystem (`int 0x80`):**
+  - Programmed IDT gate `0x80` (128) with `IDT_FLAG_RING3 | IDT_FLAG_GATE_32BIT_INT` (`0xEE`).
+  - Implemented centralized register-based syscall dispatcher (`syscall.c`, `syscall.h`):
+    - `SYS_EXIT` (0): Clean process termination and exit code reporting.
+    - `SYS_PRINT` (1): Console/serial text streaming.
+    - `SYS_READ` (2): Standard input keyboard reading.
+    - `SYS_YIELD` (3): Cooperative CPU time-slice yielding.
+    - `SYS_GETPID` (4): Process ID query.
+    - `SYS_SLEEP` (5): Non-busy timer tick sleeping with `wake_tick` scheduling.
+    - `SYS_GETTICKS` (6): System uptime timer query.
+    - `SYS_SBRK` (7): Dynamic user-space heap allocation.
+    - `SYS_BEEP` (8): PC speaker acoustic feedback.
+- **User Memory Space & Fault Isolation:**
+  - Dedicated user virtual memory window at `0x40000000 + (PID * 0x20000)` (1 GiB boundary).
+  - Code and user stack pages mapped with `PAGE_PRESENT | PAGE_WRITE | PAGE_USER`.
+  - Strict hardware protection: unauthorized kernel access (< 1 GiB) triggers `#PF` (Page Fault, err `0x5`).
+  - Privileged instructions (`cli`, `inb`, `outb`) trigger `#GP` (General Protection Fault, int 13).
+  - Fault containment: offending user tasks are cleanly killed via `Task_Exit()` without kernel panics.
+
 ---
 
 ## Memory Map Layout
@@ -175,6 +200,11 @@
                    │   Initial heap: 1 MiB (256 pages)
                    │   Expands dynamically up to 64 MiB
 0x14000000 ────────┴── [KERNEL HEAP CEILING (320 MB)]
+                   ...
+0x40000000 ────────┬── [USER SPACE BASE (1 GiB)]
+                   │   Dedicated 128 KiB slots per user process (Code, Stack, Heap)
+                   │   Mapped with PAGE_PRESENT | PAGE_WRITE | PAGE_USER
+0x80000000 ────────┴── [USER SPACE CEILING (2 GiB)]
                    ...
 0xFFC00000 ────────┬── Recursive Page Tables Window
 0xFFFFF000 ────────┴── Recursive Page Directory (Self-Mapped PDE 1023)

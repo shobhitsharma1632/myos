@@ -43,6 +43,9 @@ static const char* const g_Exceptions[] = {
     ""
 };
 
+#include <hal/syscall.h>
+#include <debug.h>
+
 void i686_ISR_InitializeGates();
 
 void i686_ISR_Initialize()
@@ -50,8 +53,6 @@ void i686_ISR_Initialize()
     i686_ISR_InitializeGates();
     for (int i = 0; i < 256; i++)
         i686_IDT_EnableGate(i);
-
-    i686_IDT_DisableGate(0x80);
 }
 
 Registers* __attribute__((cdecl)) i686_ISR_Handler(Registers* regs)
@@ -60,11 +61,30 @@ Registers* __attribute__((cdecl)) i686_ISR_Handler(Registers* regs)
         g_ISRHandlers[regs->interrupt](regs);
     else if (regs->interrupt >= 32)
     {
-        if (regs->interrupt != 129)
+        if (regs->interrupt != 129 && regs->interrupt != 128)
             printf("Unhandled interrupt %d!\n", regs->interrupt);
     }
     else
     {
+        // Handle User Mode Exceptions (Ring 3 Fault Containment)
+        if ((regs->cs & 3) == 3)
+        {
+            Task* cur = Task_GetCurrent();
+            const char* excName = (regs->interrupt < 32 && g_Exceptions[regs->interrupt][0]) ?
+                                  g_Exceptions[regs->interrupt] : "Exception";
+            log_warn("ISR", "User Process '%s' (PID %u) triggered exception %d (%s) at EIP 0x%x (Error 0x%x)!",
+                     cur ? cur->name : "unknown",
+                     cur ? cur->id : 0,
+                     regs->interrupt, excName, regs->eip, regs->error);
+            printf("\n[USER FAULT] Process '%s' (PID %u) killed by exception %d (%s) at EIP 0x%x (Error 0x%x)\n",
+                   cur ? cur->name : "unknown",
+                   cur ? cur->id : 0,
+                   regs->interrupt, excName, regs->eip, regs->error);
+
+            Task_Exit();
+            return Task_Schedule(regs);
+        }
+
         printf("Unhandled exception %d %s\n", regs->interrupt, g_Exceptions[regs->interrupt]);
 
         printf("  eax=%x ebx=%x ecx=%x edx=%x esi=%x edi=%x\n", 
@@ -79,7 +99,7 @@ Registers* __attribute__((cdecl)) i686_ISR_Handler(Registers* regs)
         i686_Panic();
     }
 
-    if (Task_IsActive() && (regs->interrupt == 32 || regs->interrupt == 129))
+    if (Task_IsActive() && (regs->interrupt == 32 || regs->interrupt == 129 || Syscall_TakeYieldRequest()))
     {
         return Task_Schedule(regs);
     }

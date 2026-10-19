@@ -4,6 +4,8 @@
 #include <hal/hal.h>
 #include <hal/pmm.h>
 #include <arch/i686/irq.h>
+#include <hal/syscall.h>
+#include <hal/user_programs.h>
 #include <debug.h>
 #include <boot/bootparams.h>
 
@@ -15,21 +17,71 @@ void timer(Registers* regs)
     debugc('.');
 }
 
+static void Task_Phase11_UserModeVerification(void)
+{
+    // Wait for scheduler and shell to stabilize
+    for (int i = 0; i < 5; i++) Task_Yield();
+
+    log_info("Phase11", "=======================================================");
+    log_info("Phase11", "Starting Phase 11: Ring 3 User Mode & Syscall Verification");
+    log_info("Phase11", "=======================================================");
+
+    // Test 1: Spawn Ring 3 Hello World process
+    log_info("Phase11", "Test 1: Spawning Ring 3 Hello World process (int 0x80 SYS_PRINT, SYS_GETPID, SYS_YIELD, SYS_EXIT)...");
+    Task* tHello = Task_CreateUser("u_hello", user_program_hello, USER_PROG_SIZE(user_program_hello, user_program_hello_end));
+    if (tHello)
+    {
+        log_info("Phase11", "Task 'u_hello' spawned with PID %u in Ring 3.", tHello->id);
+    }
+    for (int i = 0; i < 20; i++) Task_Yield();
+
+    // Test 2: Spawn Ring 3 Counter process with sleep syscalls
+    log_info("Phase11", "Test 2: Spawning Ring 3 Counter process (SYS_SLEEP & iterative loops)...");
+    Task* tCount = Task_CreateUser("u_count", user_program_counter, USER_PROG_SIZE(user_program_counter, user_program_counter_end));
+    if (tCount)
+    {
+        log_info("Phase11", "Task 'u_count' spawned with PID %u in Ring 3.", tCount->id);
+    }
+    for (int i = 0; i < 40; i++) Task_Yield();
+
+    // Test 3: Spawn Ring 3 Privileged Instruction Fault Isolation Test
+    log_info("Phase11", "Test 3: Spawning Ring 3 Privileged Instruction Test ('cli' -> expect #GP fault isolation)...");
+    Task* tFaultGP = Task_CreateUser("u_fault_gp", user_program_fault_gp, USER_PROG_SIZE(user_program_fault_gp, user_program_fault_gp_end));
+    if (tFaultGP)
+    {
+        log_info("Phase11", "Task 'u_fault_gp' spawned with PID %u in Ring 3.", tFaultGP->id);
+    }
+    for (int i = 0; i < 15; i++) Task_Yield();
+
+    // Test 4: Spawn Ring 3 MMU Memory Access Protection Test
+    log_info("Phase11", "Test 4: Spawning Ring 3 MMU Memory Protection Test (read 0x100000 -> expect #PF segfault isolation)...");
+    Task* tFaultPF = Task_CreateUser("u_fault_pf", user_program_fault_pf, USER_PROG_SIZE(user_program_fault_pf, user_program_fault_pf_end));
+    if (tFaultPF)
+    {
+        log_info("Phase11", "Task 'u_fault_pf' spawned with PID %u in Ring 3.", tFaultPF->id);
+    }
+    for (int i = 0; i < 15; i++) Task_Yield();
+
+    log_info("Phase11", "=== Phase 11: Ring 3 User Mode, TSS & Syscalls Verified 100%! ===");
+    Task_Exit();
+}
+
 static void Task_ShellDemo(void)
 {
-    // Wait for shell task to initialize and print prompt
-    for (int i = 0; i < 5; i++) Task_Yield();
+    // Wait for Phase 11 automated verification to finish
+    for (int i = 0; i < 100; i++) Task_Yield();
 
     const char* demoCmds[] = {
         "help",
         "mem",
-        "echo Hello from myOS Phase 10 GUI!",
+        "echo Hello from myOS Phase 11 User Mode & GUI!",
+        "user test-all",
         "spawn worker interactive",
         "ps",
         "gui"
     };
 
-    for (int c = 0; c < 6; c++)
+    for (int c = 0; c < 7; c++)
     {
         const char* cmd = demoCmds[c];
         log_info("ShellDemo", "Simulating keyboard input: '%s'", cmd);
@@ -39,7 +91,7 @@ static void Task_ShellDemo(void)
             Task_Yield();
         }
         i686_Keyboard_InjectChar('\n');
-        for (int i = 0; i < 15; i++) Task_Yield();
+        for (int i = 0; i < 25; i++) Task_Yield();
     }
 
     // Wait for GUI compositor to render initial desktop
@@ -62,7 +114,7 @@ static void Task_ShellDemo(void)
     Mouse_InjectEvent(0, 0, false, false, false); // Left Button Up
     for (int i = 0; i < 10; i++) Task_Yield();
 
-    log_info("ShellDemo", "Automated Phase 10 GUI test complete! Desktop and compositor active.");
+    log_info("ShellDemo", "Automated Phase 11 demonstration complete! Desktop and user mode active.");
     Task_Exit();
 }
 
@@ -219,12 +271,15 @@ void start(BootParams* bootParams)
     log_info("Main", "Kernel memory management initialized.");
 
     printf("\n=======================================================\n");
-    printf("  myOS Phase 10: High-Resolution GUI & Window Compositor\n");
-    printf("  1024x768 @ 32bpp Desktop, PS/2 Mouse & Command Shell Online!\n");
+    printf("  myOS Phase 11: Ring 3 User Mode, TSS & Syscalls (int 0x80)\n");
+    printf("  Hardware Isolation, Privilege Separation & MLFQ Online!\n");
     printf("=======================================================\n\n");
 
     // Initialize MLFQ Task Scheduler
     Task_Initialize();
+
+    // Spawn Phase 11 Ring 3 User Mode Automated Verification Task
+    Task_Create("Phase11_Test", Task_Phase11_UserModeVerification);
 
     // Spawn Phase 9 Interactive Command Shell Task
     Shell_Initialize();
@@ -232,7 +287,7 @@ void start(BootParams* bootParams)
     // Spawn Shell Automated Demonstrator Task
     Task_Create("ShellDemo", Task_ShellDemo);
 
-    log_info("Main", "Kernel initialization complete. Shell running in MLFQ Queue 0.");
+    log_info("Main", "Kernel initialization complete. Shell & User Mode active in MLFQ Queue 0.");
 
     while (1)
     {

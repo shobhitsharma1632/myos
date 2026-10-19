@@ -1,7 +1,11 @@
 #include "task.h"
 #include <hal/heap.h>
+#include <hal/vmm.h>
+#include <hal/pmm.h>
 #include <arch/i686/io.h>
 #include <arch/i686/irq.h>
+#include <arch/i686/gdt.h>
+#include <arch/i686/tss.h>
 #include <memory.h>
 #include <stdio.h>
 #include <debug.h>
@@ -23,6 +27,7 @@ static const uint32_t g_MLFQ_Quanta[MLFQ_LEVELS] = {
 
 static TaskQueue    g_MLFQ[MLFQ_LEVELS];
 static Task*        g_TerminatedHead = NULL;
+static Task*        g_SleepingHead = NULL;
 static Task         g_MainTask;
 static Task*        g_IdleTask = NULL;
 static Task*        g_CurrentTask = NULL;
@@ -213,6 +218,8 @@ Task* Task_Create(const char* name, void (*entryPoint)(void))
     task->stack_base = (uint32_t)stack;
     task->stack_size = TASK_STACK_SIZE;
     task->entry = entryPoint;
+    task->is_user = false;
+    task->kernel_stack_top = (uint32_t)stack + TASK_STACK_SIZE;
 
     // MLFQ Initial State: Queue 0 optimism for high responsiveness
     task->priority = MLFQ_PRIORITY_HIGH;
@@ -259,6 +266,152 @@ Task* Task_Create(const char* name, void (*entryPoint)(void))
 
     log_info(MODULE, "Created task '%s' (PID %u) at stack 0x%x, initial ESP 0x%x",
              task->name, task->id, task->stack_base, task->esp);
+
+    return task;
+}
+
+Task* Task_CreateUser(const char* name, const void* code, size_t codeSize)
+{
+    Task* task = (Task*)kmalloc(sizeof(Task));
+    if (!task)
+    {
+        log_err(MODULE, "Failed to allocate TCB for user task '%s'!", name ? name : "unnamed");
+        return NULL;
+    }
+    memset(task, 0, sizeof(Task));
+
+    // Allocate 4 KiB kernel stack for privilege transitions (Ring 3 -> Ring 0)
+    void* kstack = kmalloc(TASK_STACK_SIZE);
+    if (!kstack)
+    {
+        log_err(MODULE, "Failed to allocate kernel stack for user task '%s'!", name ? name : "unnamed");
+        kfree(task);
+        return NULL;
+    }
+    memset(kstack, 0, TASK_STACK_SIZE);
+
+    task->magic = TASK_MAGIC;
+    task->id = g_NextPID++;
+    task->is_user = true;
+
+    int idx = 0;
+    if (name)
+    {
+        while (name[idx] && idx < 31)
+        {
+            task->name[idx] = name[idx];
+            idx++;
+        }
+    }
+    task->name[idx] = '\0';
+
+    task->state = TASK_READY;
+    task->stack_base = (uint32_t)kstack;
+    task->stack_size = TASK_STACK_SIZE;
+    task->kernel_stack_top = (uint32_t)kstack + TASK_STACK_SIZE;
+
+    // MLFQ Initial State: Queue 0 for interactive responsiveness
+    task->priority = MLFQ_PRIORITY_HIGH;
+    task->ticks_remaining = g_MLFQ_Quanta[MLFQ_PRIORITY_HIGH];
+    task->total_ticks = 0;
+    task->voluntary_yields = 0;
+    task->preemptions = 0;
+
+    // Allocate and map user-space virtual memory (1 GiB boundary: 0x40000000)
+    uint32_t user_slot_base = 0x40000000 + (task->id * 0x20000);
+    void* user_code_virt   = (void*)user_slot_base;
+    void* user_stack_virt  = (void*)(user_slot_base + 0x10000);
+    void* user_stack_top   = (void*)(user_slot_base + 0x11000);
+    void* user_heap_start  = (void*)(user_slot_base + 0x12000);
+
+    void* code_phys = PMM_AllocatePage();
+    if (!code_phys)
+    {
+        log_err(MODULE, "Failed to allocate physical page for user code!");
+        kfree(kstack);
+        kfree(task);
+        return NULL;
+    }
+
+    void* stack_phys = PMM_AllocatePage();
+    if (!stack_phys)
+    {
+        log_err(MODULE, "Failed to allocate physical page for user stack!");
+        PMM_FreePage(code_phys);
+        kfree(kstack);
+        kfree(task);
+        return NULL;
+    }
+
+    // Map user code and user stack with PAGE_PRESENT | PAGE_WRITE | PAGE_USER
+    if (!VMM_MapPage(user_code_virt, code_phys, PAGE_PRESENT | PAGE_WRITE | PAGE_USER))
+    {
+        log_err(MODULE, "Failed to map user code page!");
+        PMM_FreePage(stack_phys);
+        PMM_FreePage(code_phys);
+        kfree(kstack);
+        kfree(task);
+        return NULL;
+    }
+
+    if (!VMM_MapPage(user_stack_virt, stack_phys, PAGE_PRESENT | PAGE_WRITE | PAGE_USER))
+    {
+        log_err(MODULE, "Failed to map user stack page!");
+        VMM_UnmapPage(user_code_virt);
+        PMM_FreePage(stack_phys);
+        PMM_FreePage(code_phys);
+        kfree(kstack);
+        kfree(task);
+        return NULL;
+    }
+
+    memset(user_code_virt, 0, PAGE_SIZE);
+    memset(user_stack_virt, 0, PAGE_SIZE);
+
+    if (code && codeSize > 0)
+    {
+        size_t copyLen = codeSize < PAGE_SIZE ? codeSize : PAGE_SIZE;
+        memcpy(user_code_virt, code, copyLen);
+    }
+
+    task->user_code_phys  = (uint32_t)code_phys;
+    task->user_code_virt  = (uint32_t)user_code_virt;
+    task->user_stack_phys = (uint32_t)stack_phys;
+    task->user_stack_virt = (uint32_t)user_stack_virt;
+    task->user_heap_break = (uint32_t)user_heap_start;
+    task->entry           = (void (*)(void))user_code_virt;
+
+    // Forge Ring 3 interrupt stack frame on kernel stack
+    uint8_t* kstack_top = (uint8_t*)task->kernel_stack_top;
+    Registers* regs = (Registers*)(kstack_top - sizeof(Registers));
+    memset(regs, 0, sizeof(Registers));
+
+    regs->ds           = USER_DATA_SELECTOR;           // 0x23 (Ring 3 User Data Segment)
+    regs->edi          = 0;
+    regs->esi          = 0;
+    regs->ebp          = 0;
+    regs->esp_original = 0;
+    regs->ebx          = 0;
+    regs->edx          = 0;
+    regs->ecx          = 0;
+    regs->eax          = 0;
+    regs->interrupt    = 0;
+    regs->error        = 0;
+    regs->eip          = (uint32_t)user_code_virt;    // User code entry point
+    regs->cs           = USER_CODE_SELECTOR;           // 0x1B (Ring 3 User Code Segment)
+    regs->eflags       = 0x0202;                       // IF=1 (interrupts enabled upon iret)
+    regs->esp          = (uint32_t)user_stack_top - 16; // User Stack Pointer (16-byte aligned)
+    regs->ss           = USER_DATA_SELECTOR;           // 0x23 (Ring 3 User Stack Segment)
+
+    task->esp = (uint32_t)regs;
+
+    // Insert task into MLFQ Queue 0
+    uint8_t ints = i686_DisableInterrupts();
+    Queue_PushBack(&g_MLFQ[MLFQ_PRIORITY_HIGH], task);
+    if (ints) i686_EnableInterrupts();
+
+    log_info(MODULE, "Created User Process '%s' (PID %u): Code @ 0x%x, Stack @ 0x%x, KStack @ 0x%x",
+             task->name, task->id, task->user_code_virt, regs->esp, task->kernel_stack_top);
 
     return task;
 }
@@ -342,6 +495,31 @@ Registers* Task_Schedule(Registers* currentRegs)
     g_CurrentTask->esp = (uint32_t)currentRegs;
     g_SchedulerTicks++;
 
+    // Wake up any sleeping tasks whose timer expired
+    Task* sleepTask = g_SleepingHead;
+    Task* prevSleep = NULL;
+    while (sleepTask != NULL)
+    {
+        Task* nextSleep = sleepTask->next;
+        if (g_SchedulerTicks >= sleepTask->wake_tick)
+        {
+            if (prevSleep)
+                prevSleep->next = nextSleep;
+            else
+                g_SleepingHead = nextSleep;
+
+            sleepTask->next = NULL;
+            sleepTask->prev = NULL;
+            sleepTask->state = TASK_READY;
+            Queue_PushBack(&g_MLFQ[sleepTask->priority], sleepTask);
+        }
+        else
+        {
+            prevSleep = sleepTask;
+        }
+        sleepTask = nextSleep;
+    }
+
     // 2. Rule 5: Priority Boost (Anti-Starvation)
     // Every MLFQ_BOOST_PERIOD ticks, all tasks are boosted to Queue 0
     if (g_SchedulerTicks - g_LastBoostTick >= MLFQ_BOOST_PERIOD)
@@ -382,6 +560,14 @@ Registers* Task_Schedule(Registers* currentRegs)
     if (g_CurrentTask->state == TASK_TERMINATED)
     {
         // Task terminated; already on reaper list, do not re-enqueue
+        needReschedule = true;
+    }
+    else if (g_CurrentTask->state == TASK_SLEEPING)
+    {
+        // Task requested sleep; enqueue onto sleeping list
+        g_CurrentTask->next = g_SleepingHead;
+        g_CurrentTask->prev = NULL;
+        g_SleepingHead = g_CurrentTask;
         needReschedule = true;
     }
     else if (g_CurrentTask == g_IdleTask)
@@ -489,8 +675,21 @@ Registers* Task_Schedule(Registers* currentRegs)
             else
                 g_TerminatedHead = nextTerm;
 
-            log_info(MODULE, "Reaper: Safely freed stack (0x%x) and TCB for terminated task '%s' (PID %u)",
-                     term->stack_base, term->name, term->id);
+            log_info(MODULE, "Reaper: Safely freed stack (0x%x) and TCB for terminated %s task '%s' (PID %u)",
+                     term->stack_base, term->is_user ? "User" : "Kernel", term->name, term->id);
+
+            // Free user-mode virtual memory mappings and physical frames
+            if (term->is_user)
+            {
+                if (term->user_code_virt)
+                    VMM_UnmapPage((void*)term->user_code_virt);
+                if (term->user_code_phys)
+                    PMM_FreePage((void*)term->user_code_phys);
+                if (term->user_stack_virt)
+                    VMM_UnmapPage((void*)term->user_stack_virt);
+                if (term->user_stack_phys)
+                    PMM_FreePage((void*)term->user_stack_phys);
+            }
 
             if (term->stack_base)
                 kfree((void*)term->stack_base);
@@ -507,7 +706,15 @@ Registers* Task_Schedule(Registers* currentRegs)
     g_CurrentTask = nextTask;
     nextTask->state = TASK_RUNNING;
 
+    // Update TSS kernel stack pointer for privilege transitions (Ring 3 -> Ring 0)
+    TSS_SetKernelStack(nextTask->kernel_stack_top);
+
     return (Registers*)nextTask->esp;
+}
+
+uint32_t Task_GetTicks(void)
+{
+    return g_SchedulerTicks;
 }
 
 Task* Task_GetCurrent(void)

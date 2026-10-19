@@ -32,3 +32,10 @@ i686_GDT_Load:
     mov esp, ebp
     pop ebp
     ret
+
+; void __attribute__((cdecl)) i686_LTR(uint16_t selector);
+global i686_LTR
+i686_LTR:
+    mov ax, [esp + 4]
+    ltr ax
+    ret

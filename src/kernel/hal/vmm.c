@@ -8,6 +8,8 @@
 
 static uint32_t* g_KernelPageDirectory = NULL;
 
+#include <hal/task.h>
+
 void i686_VMM_PageFaultHandler(Registers* regs)
 {
     uint32_t faultAddr = i686_VMM_GetFaultAddress();
@@ -19,7 +21,28 @@ void i686_VMM_PageFaultHandler(Registers* regs)
     bool reserved = (err & (1 << 3)) != 0;
     bool ifetch   = (err & (1 << 4)) != 0;
 
-    log_crit("VMM", "=== PAGE FAULT EXCEPTION (#PF) ===");
+    // Check if the fault originated from Ring 3 User Mode
+    if (user || (regs->cs & 3) == 3)
+    {
+        Task* cur = Task_GetCurrent();
+        log_warn("VMM", "User Process '%s' (PID %u) triggered Page Fault (#PF) at 0x%x [EIP 0x%x, err 0x%x: %s, %s, %s]!",
+                 cur ? cur->name : "unknown",
+                 cur ? cur->id : 0,
+                 faultAddr, regs->eip, err,
+                 present ? "protection violation" : "not present",
+                 write ? "write" : "read",
+                 ifetch ? "instruction fetch" : "data access");
+        printf("\n[USER SEGFAULT] Process '%s' (PID %u) killed: Page Fault at address 0x%x (EIP 0x%x, %s)\n",
+               cur ? cur->name : "unknown",
+               cur ? cur->id : 0,
+               faultAddr, regs->eip,
+               present ? "protection violation" : "page not present");
+
+        Task_Exit();
+        return;
+    }
+
+    log_crit("VMM", "=== KERNEL PAGE FAULT EXCEPTION (#PF) ===");
     log_crit("VMM", "Faulting Address (CR2): 0x%x", faultAddr);
     log_crit("VMM", "Error Code: 0x%x [%s, %s, %s%s%s]",
              err,
@@ -152,6 +175,14 @@ bool VMM_MapPage(void* virtAddr, void* physAddr, uint32_t flags)
 
         // Zero out the newly created page table
         memset(VMM_PAGE_TABLE_VIRT(pde_index), 0, PAGE_SIZE);
+    }
+    else
+    {
+        // Existing page table: elevate PDE flags if user mode or write permission is requested
+        if (flags & PAGE_USER)
+            VMM_PAGE_DIRECTORY_VIRT[pde_index] |= PAGE_USER;
+        if (flags & PAGE_WRITE)
+            VMM_PAGE_DIRECTORY_VIRT[pde_index] |= PAGE_WRITE;
     }
 
     // Set the PTE entry

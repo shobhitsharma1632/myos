@@ -7,6 +7,8 @@
 #include <hal/vmm.h>
 #include <hal/heap.h>
 #include <hal/gui.h>
+#include <hal/user_programs.h>
+#include <hal/syscall.h>
 #include <arch/i686/bga.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -174,6 +176,7 @@ void Shell_Execute(char* cmdLine)
         shell_print("  ps                  - List active tasks in the MLFQ scheduler\n");
         shell_print("  mem                 - Display PMM, VMM, and Kernel Heap status\n");
         shell_print("  spawn <name> [type] - Launch worker ('interactive' or 'compute')\n");
+        shell_print("  user <subcmd>       - Ring 3 user mode commands (hello, count, test-gp, test-pf, test-all)\n");
         shell_print("  kill <pid>          - Terminate task by Process ID\n");
         shell_print("  stats               - Dump live MLFQ scheduling metrics\n");
         shell_print("  gui                 - Launch high-resolution 1024x768 GUI desktop\n");
@@ -280,6 +283,62 @@ void Shell_Execute(char* cmdLine)
             {
                 shell_print("Failed to initialize GUI graphics mode!\n");
             }
+        }
+    }
+    else if (str_cmp(cmd, "user") == 0)
+    {
+        if (argc < 2)
+        {
+            shell_print("Usage: user <hello|count|test-gp|test-pf|test-all>\n");
+            shell_print("  hello    - Run Ring 3 Hello World process with int 0x80 syscalls\n");
+            shell_print("  count    - Run Ring 3 counter process testing user stack & sleep\n");
+            shell_print("  test-gp  - Test Ring 3 fault isolation (privileged 'cli' triggers #GP)\n");
+            shell_print("  test-pf  - Test Ring 3 MMU memory protection (kernel read triggers #PF)\n");
+            shell_print("  test-all - Run all Ring 3 verification tests in sequence\n");
+            return;
+        }
+
+        const char* sub = argv[1];
+        if (str_cmp(sub, "hello") == 0)
+        {
+            shell_print("Spawning Ring 3 User Process 'u_hello'...\n");
+            Task* t = Task_CreateUser("u_hello", user_program_hello, USER_PROG_SIZE(user_program_hello, user_program_hello_end));
+            if (t) shell_print("Spawned user process PID %u in Ring 3!\n", t->id);
+            else shell_print("Failed to spawn user process!\n");
+        }
+        else if (str_cmp(sub, "count") == 0)
+        {
+            shell_print("Spawning Ring 3 User Process 'u_count'...\n");
+            Task* t = Task_CreateUser("u_count", user_program_counter, USER_PROG_SIZE(user_program_counter, user_program_counter_end));
+            if (t) shell_print("Spawned user process PID %u in Ring 3!\n", t->id);
+            else shell_print("Failed to spawn user process!\n");
+        }
+        else if (str_cmp(sub, "test-gp") == 0)
+        {
+            shell_print("Spawning Ring 3 Fault Isolation Test 'u_fault_gp'...\n");
+            Task* t = Task_CreateUser("u_fault_gp", user_program_fault_gp, USER_PROG_SIZE(user_program_fault_gp, user_program_fault_gp_end));
+            if (t) shell_print("Spawned user process PID %u (expect #GP fault without kernel crash)!\n", t->id);
+            else shell_print("Failed to spawn user process!\n");
+        }
+        else if (str_cmp(sub, "test-pf") == 0)
+        {
+            shell_print("Spawning Ring 3 MMU Protection Test 'u_fault_pf'...\n");
+            Task* t = Task_CreateUser("u_fault_pf", user_program_fault_pf, USER_PROG_SIZE(user_program_fault_pf, user_program_fault_pf_end));
+            if (t) shell_print("Spawned user process PID %u (expect #PF fault without kernel crash)!\n", t->id);
+            else shell_print("Failed to spawn user process!\n");
+        }
+        else if (str_cmp(sub, "test-all") == 0)
+        {
+            shell_print("Launching Ring 3 Verification Suite (hello, count, test-gp, test-pf)...\n");
+            Task_CreateUser("u_hello", user_program_hello, USER_PROG_SIZE(user_program_hello, user_program_hello_end));
+            Task_CreateUser("u_count", user_program_counter, USER_PROG_SIZE(user_program_counter, user_program_counter_end));
+            Task_CreateUser("u_fault_gp", user_program_fault_gp, USER_PROG_SIZE(user_program_fault_gp, user_program_fault_gp_end));
+            Task_CreateUser("u_fault_pf", user_program_fault_pf, USER_PROG_SIZE(user_program_fault_pf, user_program_fault_pf_end));
+            shell_print("All 4 user processes queued in MLFQ Queue 0.\n");
+        }
+        else
+        {
+            shell_print("Unknown user subcommand '%s'. Type 'user' for options.\n", sub);
         }
     }
     else if (str_cmp(cmd, "reboot") == 0)
