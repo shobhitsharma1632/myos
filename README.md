@@ -220,6 +220,28 @@
 - **Interactive Shell Execution:**
   - `exec <filepath> [args...]` command with automatic fallback to `/bin/<cmd>` and `/bin/<cmd>.elf`.
 
+### 10. Standard C Library (`libmyos`), POSIX Subsystem Expansion & User Applications (Phase 14)
+- **User Dynamic Heap Allocator:**
+  - Boundary-tag memory allocator implemented in user space (`libuser.c`, `libuser.h`).
+  - Supports 8-byte payload alignment, block splitting, and bidirectional $O(1)$ coalescing.
+  - Automatically requests virtual memory backing from kernel via `sys_sbrk` (`SYS_SBRK` 7).
+  - Standard primitives: `malloc`, `free`, `calloc`, `realloc`.
+- **POSIX Standard Streams & File I/O:**
+  - Full stream abstraction supporting buffered `FILE*`, `stdin` (fd 0), `stdout` (fd 1), `stderr` (fd 2).
+  - Stream methods: `fopen`, `fclose`, `fread`, `fwrite`, `fseek`, `ftell`, `fgetc`, `fputc`, `fgets`, `fputs`, `feof`, `ferror`.
+  - Formatted I/O: `vsnprintf`, `snprintf`, `sprintf`, `vfprintf`, `fprintf`, `printf`.
+  - String & memory routines: `memset`, `memcpy`, `memmove`, `memcmp`, `strlen`, `strcpy`, `strncpy`, `strcmp`, `strncmp`, `strcat`, `strncat`, `strchr`, `strrchr`, `strstr`, `strtok`, `strdup`.
+  - Standard utilities: `atoi`, `atol`, `itoa`, `qsort`, `rand`, `srand`, `abs`.
+- **Kernel Syscall & VFS Enhancements:**
+  - Added `SYS_SEEK` (18) and kernel `sys_lseek` supporting `SEEK_SET`, `SEEK_CUR`, and `SEEK_END`.
+  - Dynamic user heap page frame and page table tracking with deferred reaper cleanup upon process termination.
+  - Port 0xE9 debug console mirroring for standard user output streams.
+- **Expanded Standalone Applications (`/bin/`):**
+  - `wc.elf`: POSIX file word, line, and byte counter using `fgetc`.
+  - `grep.elf`: Fast substring search across disk files using `fgets` and `strstr`.
+  - `snake.elf`: Dynamic game simulation exercising heap allocation and linked lists (`malloc`/`free`).
+  - `sh.elf`: Ring 3 user subshell with built-ins (`cd`, `pwd`, `help`, `exit`) and child process batch execution (`-c`) using `sys_spawn` and `sys_waitpid`.
+
 ---
 
 ## Memory Map Layout
@@ -278,7 +300,7 @@ myos/
 │   │   ├── crt0.asm            # User-space C runtime startup
 │   │   ├── linker.ld           # User application linker script (0x40000000)
 │   │   ├── libuser.h/c         # Standard user library and syscall wrappers
-│   │   └── apps/               # Standalone applications (hello, calc, counter, cat)
+│   │   └── apps/               # Standalone applications (hello, calc, counter, cat, wc, grep, sh, snake)
 │   └── libs/
 │       └── boot/
 │           └── bootparams.h    # Shared Stage 2 <-> Kernel boot data contract

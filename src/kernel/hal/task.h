@@ -13,7 +13,7 @@
 
 #define MLFQ_BOOST_PERIOD       100 // Boost all tasks to Queue 0 every 100 ticks (anti-starvation)
 
-#define TASK_STACK_SIZE         4096
+#define TASK_STACK_SIZE         8192
 #define TASK_MAGIC              0x7A5C1337
 
 typedef enum {
@@ -50,9 +50,9 @@ struct Task {
     bool        waitable;            // True if process lifecycle retained for Task_WaitPID
     bool        reapable;            // True if zombie status collected and ready for reaper
     size_t      elf_pages_count;
-    void*       elf_pages_phys[64];
+    void*       elf_pages_phys[256];
     size_t      elf_pts_count;
-    void*       elf_pts_phys[16];
+    void*       elf_pts_phys[32];
 
     // MLFQ Scheduling Fields
     uint8_t     priority;           // Current MLFQ level: 0, 1, or 2

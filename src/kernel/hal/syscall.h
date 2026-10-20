@@ -22,6 +22,7 @@
 #define SYS_STAT        15  // File stat (ebx = path, ecx = stat ptr)
 #define SYS_SPAWN       16  // Spawn user ELF program (ebx = path, ecx = argc, edx = argv)
 #define SYS_WAITPID     17  // Wait for user process (ebx = pid, ecx = status ptr)
+#define SYS_SEEK        18  // Seek in file (ebx = fd, ecx = offset, edx = whence)
 
 // Kernel Syscall Gateway Interface
 void Syscall_Initialize(void);
@@ -150,4 +151,9 @@ static inline int32_t sys_spawn(const char* path, int argc, char* const argv[])
 static inline int32_t sys_waitpid(int32_t pid, int32_t* status)
 {
     return syscall2(SYS_WAITPID, (uint32_t)pid, (uint32_t)status);
+}
+
+static inline int32_t sys_lseek(int fd, int32_t offset, int whence)
+{
+    return syscall3(SYS_SEEK, (uint32_t)fd, (uint32_t)offset, (uint32_t)whence);
 }

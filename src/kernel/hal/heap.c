@@ -147,6 +147,7 @@ void* kmalloc(size_t size)
             g_HeapUsedBytes += curr->size;
             g_HeapFreeBytes -= curr->size;
 
+            log_debug("Heap", "kmalloc(%u) -> 0x%x [hdr=0x%x]", (uint32_t)size, (uint32_t)(curr + 1), (uint32_t)curr);
             return (void*)(curr + 1);
         }
 
@@ -186,6 +187,7 @@ void kfree(void* ptr)
     block->is_free = true;
     g_HeapUsedBytes -= block->size;
     g_HeapFreeBytes += block->size;
+    log_debug("Heap", "kfree(0x%x) [hdr=0x%x, sz=%u]", (uint32_t)ptr, (uint32_t)block, (uint32_t)block->size);
 
     // O(1) Immediate coalesce with next block if free
     if (block->next && block->next->is_free && block->next->magic == HEAP_MAGIC)

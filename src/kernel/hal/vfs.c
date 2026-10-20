@@ -103,7 +103,11 @@ int vfs_write(fd_t fd, const void* buf, size_t count)
     case VFS_FD_STDOUT:
     case VFS_FD_STDERR:
         for (size_t i = 0; i < count; i++)
-            VGA_putc(((const char*)buf)[i]);
+        {
+            char c = ((const char*)buf)[i];
+            VGA_putc(c);
+            e9_putc(c);
+        }
         return count;
 
     case VFS_FD_DEBUG:

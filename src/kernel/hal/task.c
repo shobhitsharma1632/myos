@@ -534,11 +534,9 @@ int32_t Task_WaitPID(uint32_t pid, int32_t* outExitCode)
 {
     while (true)
     {
-        uint8_t ints = i686_DisableInterrupts();
         Task* t = Task_Find(pid);
         if (!t)
         {
-            if (ints) i686_EnableInterrupts();
             // Process does not exist or has already been reaped
             return -1;
         }
@@ -548,38 +546,45 @@ int32_t Task_WaitPID(uint32_t pid, int32_t* outExitCode)
             if (outExitCode)
                 *outExitCode = t->exit_code;
             t->reapable = true;
-            if (ints) i686_EnableInterrupts();
             return (int32_t)pid;
         }
 
-        if (ints) i686_EnableInterrupts();
         Task_Yield();
     }
 }
 
 Task* Task_CreateUserFromELF(const char* name, const char* filepath, int argc, char* const argv[])
 {
-    ELF_ProgramImage image;
-    if (!ELF_Load(filepath, &image))
+    ELF_ProgramImage* image = (ELF_ProgramImage*)kmalloc(sizeof(ELF_ProgramImage));
+    if (!image)
+    {
+        log_err(MODULE, "Task_CreateUserFromELF: failed to allocate memory for image structure");
+        return NULL;
+    }
+
+    if (!ELF_Load(filepath, image))
     {
         log_err(MODULE, "Task_CreateUserFromELF: failed to load ELF '%s'", filepath);
+        kfree(image);
         return NULL;
     }
 
     Task* task = (Task*)kmalloc(sizeof(Task));
     if (!task)
     {
-        ELF_Unload(&image);
+        ELF_Unload(image);
+        kfree(image);
         return NULL;
     }
     memset(task, 0, sizeof(Task));
 
-    // Allocate 4 KiB kernel stack for privilege transitions (Ring 3 -> Ring 0)
+    // Allocate kernel stack for privilege transitions (Ring 3 -> Ring 0)
     void* kstack = kmalloc(TASK_STACK_SIZE);
     if (!kstack)
     {
         kfree(task);
-        ELF_Unload(&image);
+        ELF_Unload(image);
+        kfree(image);
         return NULL;
     }
     memset(kstack, 0, TASK_STACK_SIZE);
@@ -603,29 +608,29 @@ Task* Task_CreateUserFromELF(const char* name, const char* filepath, int argc, c
     task->stack_base = (uint32_t)kstack;
     task->stack_size = TASK_STACK_SIZE;
     task->kernel_stack_top = (uint32_t)kstack + TASK_STACK_SIZE;
-    task->page_directory_phys = image.page_directory_phys;
-    task->entry = (void (*)(void))image.entry_point;
-    task->user_heap_break = image.user_heap_break;
+    task->page_directory_phys = image->page_directory_phys;
+    task->entry = (void (*)(void))image->entry_point;
+    task->user_heap_break = image->user_heap_break;
     task->waitable = true;
     task->reapable = false;
 
     // Track physical pages for cleanup on exit
-    task->elf_pages_count = image.pages_count;
-    for (size_t i = 0; i < image.pages_count; i++)
+    task->elf_pages_count = image->pages_count;
+    for (size_t i = 0; i < image->pages_count; i++)
     {
-        task->elf_pages_phys[i] = image.pages_phys[i];
+        task->elf_pages_phys[i] = image->pages_phys[i];
     }
-    task->elf_pts_count = image.pts_count;
-    for (size_t i = 0; i < image.pts_count; i++)
+    task->elf_pts_count = image->pts_count;
+    for (size_t i = 0; i < image->pts_count; i++)
     {
-        task->elf_pts_phys[i] = image.pts_phys[i];
+        task->elf_pts_phys[i] = image->pts_phys[i];
     }
 
     task->priority = MLFQ_PRIORITY_HIGH;
     task->ticks_remaining = g_MLFQ_Quanta[MLFQ_PRIORITY_HIGH];
 
     // Find the top stack page physical frame to format initial user stack
-    void* top_stack_phys = image.pages_phys[image.pages_count - 1];
+    void* top_stack_phys = image->pages_phys[image->pages_count - 1];
     uint32_t top_stack_virt = USER_STACK_TOP; // 0x40100000
     uint32_t page_base_virt = top_stack_virt - PAGE_SIZE; // 0x400FF000
 
@@ -688,13 +693,16 @@ Task* Task_CreateUserFromELF(const char* name, const char* filepath, int argc, c
     regs->eax          = 0;
     regs->interrupt    = 0;
     regs->error        = 0;
-    regs->eip          = image.entry_point;            // ELF entry point address
+    regs->eip          = image->entry_point;           // ELF entry point address
     regs->cs           = USER_CODE_SELECTOR;           // 0x1B (Ring 3 User Code Segment)
     regs->eflags       = 0x0202;                       // IF=1
     regs->esp          = curr_sp;                      // User stack pointer
     regs->ss           = USER_DATA_SELECTOR;           // 0x23 (Ring 3 User Stack Segment)
 
     task->esp = (uint32_t)regs;
+
+    // Free temporary ELF loading descriptor
+    kfree(image);
 
     // Insert task into MLFQ Queue 0
     uint8_t ints = i686_DisableInterrupts();
@@ -772,7 +780,9 @@ Registers* Task_Schedule(Registers* currentRegs)
             g_CurrentTask->ticks_remaining = g_MLFQ_Quanta[MLFQ_PRIORITY_HIGH];
         }
 
-        log_info(MODULE, "MLFQ Priority Boost: All tasks elevated to Queue 0 at tick %u", g_SchedulerTicks);
+        log_info(MODULE, "MLFQ Boost: tick %u, cur='%s' (PID %u, state %d)",
+                 g_SchedulerTicks, g_CurrentTask ? g_CurrentTask->name : "none",
+                 g_CurrentTask ? g_CurrentTask->id : 0, g_CurrentTask ? g_CurrentTask->state : -1);
     }
 
     // 3. Update current task state according to MLFQ Rules 4a & 4b

@@ -1,7 +1,9 @@
 #include "libuser.h"
-#include <stdarg.h>
 
-// Raw syscall dispatchers
+// ============================================================================
+// Low-Level Syscall Dispatchers
+// ============================================================================
+
 static inline int32_t syscall0(uint32_t num)
 {
     int32_t ret;
@@ -98,6 +100,11 @@ int sys_write_file(int fd, const void* buf, size_t count)
     return syscall3(13, (uint32_t)fd, (uint32_t)buf, (uint32_t)count);
 }
 
+int sys_lseek(int fd, int offset, int whence)
+{
+    return syscall3(18, (uint32_t)fd, (uint32_t)offset, (uint32_t)whence);
+}
+
 int sys_spawn(const char* path, int argc, char* const argv[])
 {
     return syscall3(16, (uint32_t)path, (uint32_t)argc, (uint32_t)argv);
@@ -108,7 +115,220 @@ int sys_waitpid(int pid, int* status)
     return syscall2(17, (uint32_t)pid, (uint32_t)status);
 }
 
-// Utility string functions
+// ============================================================================
+// User-Space Dynamic Memory Management (malloc, free, calloc, realloc)
+// ============================================================================
+
+typedef struct BlockHeader {
+    size_t size;               // Usable payload size in bytes
+    bool is_free;              // Free status flag
+    struct BlockHeader* next;  // Next block in address order
+    struct BlockHeader* prev;  // Previous block in address order
+} BlockHeader;
+
+#define BLOCK_HEADER_SIZE sizeof(BlockHeader)
+#define ALIGN8(s) (((s) + 7) & ~7)
+
+static BlockHeader* g_heap_head = NULL;
+
+void* malloc(size_t size)
+{
+    if (size == 0) return NULL;
+
+    size_t aligned_size = ALIGN8(size);
+    if (aligned_size < 16) aligned_size = 16;
+
+    // Search existing free list for first fit
+    BlockHeader* curr = g_heap_head;
+    while (curr)
+    {
+        if (curr->is_free && curr->size >= aligned_size)
+        {
+            // Split block if excess space is large enough
+            if (curr->size >= aligned_size + BLOCK_HEADER_SIZE + 16)
+            {
+                BlockHeader* split = (BlockHeader*)((uint8_t*)curr + BLOCK_HEADER_SIZE + aligned_size);
+                split->size = curr->size - aligned_size - BLOCK_HEADER_SIZE;
+                split->is_free = true;
+                split->next = curr->next;
+                split->prev = curr;
+                if (curr->next) curr->next->prev = split;
+                curr->next = split;
+                curr->size = aligned_size;
+            }
+
+            curr->is_free = false;
+            return (void*)((uint8_t*)curr + BLOCK_HEADER_SIZE);
+        }
+        curr = curr->next;
+    }
+
+    // Need to expand user heap via sys_sbrk
+    size_t total_needed = aligned_size + BLOCK_HEADER_SIZE;
+    size_t sbrk_chunk = ((total_needed + 4095) / 4096) * 4096; // 4 KiB multiple
+    if (sbrk_chunk < 8192) sbrk_chunk = 8192; // Allocate at least 8 KiB at a time
+
+    void* raw = sys_sbrk((int)sbrk_chunk);
+    if (raw == (void*)-1 || raw == NULL)
+        return NULL;
+
+    BlockHeader* new_block = (BlockHeader*)raw;
+    new_block->size = sbrk_chunk - BLOCK_HEADER_SIZE;
+    new_block->is_free = true;
+    new_block->next = NULL;
+    new_block->prev = NULL;
+
+    // Link to tail of heap list
+    if (!g_heap_head)
+    {
+        g_heap_head = new_block;
+    }
+    else
+    {
+        BlockHeader* tail = g_heap_head;
+        while (tail->next) tail = tail->next;
+        tail->next = new_block;
+        new_block->prev = tail;
+    }
+
+    // Now split the new block if needed
+    if (new_block->size >= aligned_size + BLOCK_HEADER_SIZE + 16)
+    {
+        BlockHeader* split = (BlockHeader*)((uint8_t*)new_block + BLOCK_HEADER_SIZE + aligned_size);
+        split->size = new_block->size - aligned_size - BLOCK_HEADER_SIZE;
+        split->is_free = true;
+        split->next = new_block->next;
+        split->prev = new_block;
+        if (new_block->next) new_block->next->prev = split;
+        new_block->next = split;
+        new_block->size = aligned_size;
+    }
+
+    new_block->is_free = false;
+    return (void*)((uint8_t*)new_block + BLOCK_HEADER_SIZE);
+}
+
+void free(void* ptr)
+{
+    if (!ptr) return;
+
+    BlockHeader* block = (BlockHeader*)((uint8_t*)ptr - BLOCK_HEADER_SIZE);
+    block->is_free = true;
+
+    // Forward coalescing
+    if (block->next && block->next->is_free)
+    {
+        block->size += BLOCK_HEADER_SIZE + block->next->size;
+        block->next = block->next->next;
+        if (block->next) block->next->prev = block;
+    }
+
+    // Backward coalescing
+    if (block->prev && block->prev->is_free)
+    {
+        block->prev->size += BLOCK_HEADER_SIZE + block->size;
+        block->prev->next = block->next;
+        if (block->next) block->next->prev = block->prev;
+    }
+}
+
+void* calloc(size_t nmemb, size_t size)
+{
+    size_t total = nmemb * size;
+    void* p = malloc(total);
+    if (p)
+        memset(p, 0, total);
+    return p;
+}
+
+void* realloc(void* ptr, size_t size)
+{
+    if (!ptr) return malloc(size);
+    if (size == 0)
+    {
+        free(ptr);
+        return NULL;
+    }
+
+    BlockHeader* block = (BlockHeader*)((uint8_t*)ptr - BLOCK_HEADER_SIZE);
+    size_t aligned_size = ALIGN8(size);
+
+    if (block->size >= aligned_size)
+    {
+        return ptr; // Already large enough
+    }
+
+    // Check if next block is free and can merge
+    if (block->next && block->next->is_free &&
+        (block->size + BLOCK_HEADER_SIZE + block->next->size >= aligned_size))
+    {
+        block->size += BLOCK_HEADER_SIZE + block->next->size;
+        block->next = block->next->next;
+        if (block->next) block->next->prev = block;
+        return ptr;
+    }
+
+    // Reallocate, copy, and free
+    void* new_ptr = malloc(size);
+    if (!new_ptr) return NULL;
+
+    size_t copy_size = block->size < size ? block->size : size;
+    memcpy(new_ptr, ptr, copy_size);
+    free(ptr);
+    return new_ptr;
+}
+
+// ============================================================================
+// Memory & String Manipulation
+// ============================================================================
+
+void* memset(void* dest, int c, size_t n)
+{
+    uint8_t* p = (uint8_t*)dest;
+    uint8_t val = (uint8_t)c;
+    while (n--) *p++ = val;
+    return dest;
+}
+
+void* memcpy(void* dest, const void* src, size_t n)
+{
+    uint8_t* d = (uint8_t*)dest;
+    const uint8_t* s = (const uint8_t*)src;
+    while (n--) *d++ = *s++;
+    return dest;
+}
+
+void* memmove(void* dest, const void* src, size_t n)
+{
+    uint8_t* d = (uint8_t*)dest;
+    const uint8_t* s = (const uint8_t*)src;
+    if (d < s)
+    {
+        while (n--) *d++ = *s++;
+    }
+    else if (d > s)
+    {
+        d += n;
+        s += n;
+        while (n--) *--d = *--s;
+    }
+    return dest;
+}
+
+int memcmp(const void* s1, const void* s2, size_t n)
+{
+    const uint8_t* p1 = (const uint8_t*)s1;
+    const uint8_t* p2 = (const uint8_t*)s2;
+    while (n--)
+    {
+        if (*p1 != *p2)
+            return *p1 - *p2;
+        p1++;
+        p2++;
+    }
+    return 0;
+}
+
 size_t strlen(const char* s)
 {
     size_t len = 0;
@@ -145,6 +365,14 @@ char* strcpy(char* dest, const char* src)
     return orig;
 }
 
+char* strncpy(char* dest, const char* src, size_t n)
+{
+    char* orig = dest;
+    while (n && (*dest++ = *src++)) n--;
+    while (n--) *dest++ = '\0';
+    return orig;
+}
+
 char* strcat(char* dest, const char* src)
 {
     char* orig = dest;
@@ -153,20 +381,331 @@ char* strcat(char* dest, const char* src)
     return orig;
 }
 
-int atoi(const char* s)
+char* strncat(char* dest, const char* src, size_t n)
 {
-    int res = 0;
-    int sign = 1;
-    while (*s == ' ' || *s == '\t') s++;
-    if (*s == '-') { sign = -1; s++; }
-    else if (*s == '+') { s++; }
-    while (*s >= '0' && *s <= '9')
+    char* orig = dest;
+    while (*dest) dest++;
+    while (n-- && (*dest++ = *src++));
+    *dest = '\0';
+    return orig;
+}
+
+char* strchr(const char* s, int c)
+{
+    char ch = (char)c;
+    while (*s)
     {
-        res = res * 10 + (*s - '0');
+        if (*s == ch) return (char*)s;
         s++;
     }
-    return res * sign;
+    return (ch == '\0') ? (char*)s : NULL;
 }
+
+char* strrchr(const char* s, int c)
+{
+    char ch = (char)c;
+    const char* last = NULL;
+    while (*s)
+    {
+        if (*s == ch) last = s;
+        s++;
+    }
+    if (ch == '\0') return (char*)s;
+    return (char*)last;
+}
+
+char* strstr(const char* haystack, const char* needle)
+{
+    if (!*needle) return (char*)haystack;
+    for (; *haystack; haystack++)
+    {
+        if (*haystack == *needle)
+        {
+            const char* h = haystack;
+            const char* n = needle;
+            while (*h && *n && (*h == *n))
+            {
+                h++;
+                n++;
+            }
+            if (!*n) return (char*)haystack;
+        }
+    }
+    return NULL;
+}
+
+char* strtok(char* str, const char* delim)
+{
+    static char* last = NULL;
+    if (str) last = str;
+    if (!last) return NULL;
+
+    // Skip leading delimiters
+    while (*last && strchr(delim, *last)) last++;
+    if (!*last)
+    {
+        last = NULL;
+        return NULL;
+    }
+
+    char* token_start = last;
+    while (*last && !strchr(delim, *last)) last++;
+
+    if (*last)
+    {
+        *last = '\0';
+        last++;
+    }
+    else
+    {
+        last = NULL;
+    }
+
+    return token_start;
+}
+
+char* strdup(const char* s)
+{
+    if (!s) return NULL;
+    size_t len = strlen(s) + 1;
+    char* copy = (char*)malloc(len);
+    if (copy) memcpy(copy, s, len);
+    return copy;
+}
+
+// ============================================================================
+// Standard I/O Streams (fopen, fclose, fread, fwrite, fseek, ftell)
+// ============================================================================
+
+static FILE g_stdin_file  = { .fd = 0, .flags = O_RDONLY, .eof = false, .error = false, .unget_buf = 0, .has_unget = false };
+static FILE g_stdout_file = { .fd = 1, .flags = O_WRONLY, .eof = false, .error = false, .unget_buf = 0, .has_unget = false };
+static FILE g_stderr_file = { .fd = 2, .flags = O_WRONLY, .eof = false, .error = false, .unget_buf = 0, .has_unget = false };
+
+FILE* stdin  = &g_stdin_file;
+FILE* stdout = &g_stdout_file;
+FILE* stderr = &g_stderr_file;
+
+FILE* fopen(const char* path, const char* mode)
+{
+    if (!path || !mode) return NULL;
+
+    int flags = 0;
+    if (strcmp(mode, "r") == 0 || strcmp(mode, "rb") == 0)
+    {
+        flags = O_RDONLY;
+    }
+    else if (strcmp(mode, "w") == 0 || strcmp(mode, "wb") == 0)
+    {
+        flags = O_WRONLY | O_CREAT | O_TRUNC;
+    }
+    else if (strcmp(mode, "a") == 0 || strcmp(mode, "ab") == 0)
+    {
+        flags = O_WRONLY | O_CREAT | O_APPEND;
+    }
+    else if (strcmp(mode, "r+") == 0 || strcmp(mode, "r+b") == 0)
+    {
+        flags = O_RDWR;
+    }
+    else if (strcmp(mode, "w+") == 0 || strcmp(mode, "w+b") == 0)
+    {
+        flags = O_RDWR | O_CREAT | O_TRUNC;
+    }
+    else
+    {
+        flags = O_RDONLY;
+    }
+
+    int fd = sys_open(path, flags);
+    if (fd < 0) return NULL;
+
+    FILE* fp = (FILE*)malloc(sizeof(FILE));
+    if (!fp)
+    {
+        sys_close(fd);
+        return NULL;
+    }
+
+    fp->fd = fd;
+    fp->flags = flags;
+    fp->eof = false;
+    fp->error = false;
+    fp->unget_buf = 0;
+    fp->has_unget = false;
+    return fp;
+}
+
+int fclose(FILE* stream)
+{
+    if (!stream) return EOF;
+    fflush(stream);
+
+    int res = 0;
+    if (stream != stdin && stream != stdout && stream != stderr)
+    {
+        res = sys_close(stream->fd);
+        free(stream);
+    }
+    return (res == 0) ? 0 : EOF;
+}
+
+size_t fread(void* ptr, size_t size, size_t nmemb, FILE* stream)
+{
+    if (!ptr || size == 0 || nmemb == 0 || !stream) return 0;
+
+    size_t total_bytes = size * nmemb;
+    uint8_t* dst = (uint8_t*)ptr;
+    size_t bytes_read = 0;
+
+    if (stream->has_unget)
+    {
+        *dst++ = (uint8_t)stream->unget_buf;
+        stream->has_unget = false;
+        bytes_read++;
+        total_bytes--;
+    }
+
+    if (total_bytes > 0)
+    {
+        int n = sys_read_file(stream->fd, dst, total_bytes);
+        if (n < 0)
+        {
+            stream->error = true;
+        }
+        else if (n == 0)
+        {
+            stream->eof = true;
+        }
+        else
+        {
+            bytes_read += (size_t)n;
+            if ((size_t)n < total_bytes)
+                stream->eof = true;
+        }
+    }
+
+    return bytes_read / size;
+}
+
+size_t fwrite(const void* ptr, size_t size, size_t nmemb, FILE* stream)
+{
+    if (!ptr || size == 0 || nmemb == 0 || !stream) return 0;
+
+    size_t total_bytes = size * nmemb;
+    int n = sys_write_file(stream->fd, ptr, total_bytes);
+    if (n < 0)
+    {
+        stream->error = true;
+        return 0;
+    }
+    return (size_t)n / size;
+}
+
+int fseek(FILE* stream, long offset, int whence)
+{
+    if (!stream) return -1;
+    stream->has_unget = false;
+    int res = sys_lseek(stream->fd, (int)offset, whence);
+    if (res >= 0)
+    {
+        stream->eof = false;
+        return 0;
+    }
+    stream->error = true;
+    return -1;
+}
+
+long ftell(FILE* stream)
+{
+    if (!stream) return -1;
+    return (long)sys_lseek(stream->fd, 0, SEEK_CUR);
+}
+
+void rewind(FILE* stream)
+{
+    fseek(stream, 0, SEEK_SET);
+}
+
+int fgetc(FILE* stream)
+{
+    if (!stream) return EOF;
+    if (stream->has_unget)
+    {
+        stream->has_unget = false;
+        return (unsigned char)stream->unget_buf;
+    }
+
+    uint8_t ch = 0;
+    int n = sys_read_file(stream->fd, &ch, 1);
+    if (n <= 0)
+    {
+        if (n == 0) stream->eof = true;
+        else stream->error = true;
+        return EOF;
+    }
+    return (int)ch;
+}
+
+int fputc(int c, FILE* stream)
+{
+    if (!stream) return EOF;
+    uint8_t ch = (uint8_t)c;
+    int n = sys_write_file(stream->fd, &ch, 1);
+    if (n <= 0)
+    {
+        stream->error = true;
+        return EOF;
+    }
+    return (int)ch;
+}
+
+char* fgets(char* s, int size, FILE* stream)
+{
+    if (!s || size <= 0 || !stream) return NULL;
+
+    int idx = 0;
+    while (idx < size - 1)
+    {
+        int c = fgetc(stream);
+        if (c == EOF)
+        {
+            if (idx == 0) return NULL;
+            break;
+        }
+
+        s[idx++] = (char)c;
+        if (c == '\n') break;
+    }
+
+    s[idx] = '\0';
+    return s;
+}
+
+int fputs(const char* s, FILE* stream)
+{
+    if (!s || !stream) return EOF;
+    size_t len = strlen(s);
+    return (fwrite(s, 1, len, stream) == len) ? (int)len : EOF;
+}
+
+int fflush(FILE* stream)
+{
+    (void)stream;
+    return 0;
+}
+
+int feof(FILE* stream)
+{
+    return stream ? stream->eof : 1;
+}
+
+int ferror(FILE* stream)
+{
+    return stream ? stream->error : 1;
+}
+
+// ============================================================================
+// Formatted Output (vsnprintf, snprintf, sprintf, fprintf, printf)
+// ============================================================================
 
 void itoa(int val, char* str, int base)
 {
@@ -195,9 +734,7 @@ void itoa(int val, char* str, int base)
         uval /= base;
     }
 
-    if (is_neg)
-        *p++ = '-';
-
+    if (is_neg) *p++ = '-';
     *p = '\0';
 
     p1 = str;
@@ -210,85 +747,230 @@ void itoa(int val, char* str, int base)
     }
 }
 
-int printf(const char* fmt, ...)
+int vsnprintf(char* str, size_t size, const char* fmt, va_list args)
 {
-    va_list args;
-    va_start(args, fmt);
-
-    char buf[32];
-    int count = 0;
+    if (!fmt) return 0;
+    size_t written = 0;
+    char num_buf[32];
 
     for (const char* p = fmt; *p != '\0'; p++)
     {
         if (*p != '%')
         {
-            char c[2] = { *p, '\0' };
-            sys_print(c);
-            count++;
+            if (str && written + 1 < size)
+                str[written] = *p;
+            written++;
             continue;
         }
 
         p++; // skip '%'
+        if (*p == '\0') break;
+
         switch (*p)
         {
             case 's':
             {
                 const char* s = va_arg(args, const char*);
                 if (!s) s = "(null)";
-                sys_print(s);
-                count += strlen(s);
+                while (*s)
+                {
+                    if (str && written + 1 < size)
+                        str[written] = *s;
+                    written++;
+                    s++;
+                }
                 break;
             }
             case 'd':
             case 'i':
             {
                 int val = va_arg(args, int);
-                itoa(val, buf, 10);
-                sys_print(buf);
-                count += strlen(buf);
+                itoa(val, num_buf, 10);
+                for (char* n = num_buf; *n; n++)
+                {
+                    if (str && written + 1 < size)
+                        str[written] = *n;
+                    written++;
+                }
                 break;
             }
             case 'u':
             {
                 unsigned int val = va_arg(args, unsigned int);
-                itoa(val, buf, 10);
-                sys_print(buf);
-                count += strlen(buf);
+                itoa((int)val, num_buf, 10);
+                for (char* n = num_buf; *n; n++)
+                {
+                    if (str && written + 1 < size)
+                        str[written] = *n;
+                    written++;
+                }
                 break;
             }
             case 'x':
             case 'X':
             {
                 unsigned int val = va_arg(args, unsigned int);
-                itoa(val, buf, 16);
-                sys_print(buf);
-                count += strlen(buf);
+                itoa((int)val, num_buf, 16);
+                for (char* n = num_buf; *n; n++)
+                {
+                    if (str && written + 1 < size)
+                        str[written] = *n;
+                    written++;
+                }
                 break;
             }
             case 'c':
             {
                 char c = (char)va_arg(args, int);
-                char s[2] = { c, '\0' };
-                sys_print(s);
-                count++;
+                if (str && written + 1 < size)
+                    str[written] = c;
+                written++;
                 break;
             }
             case '%':
             {
-                sys_print("%");
-                count++;
+                if (str && written + 1 < size)
+                    str[written] = '%';
+                written++;
                 break;
             }
             default:
             {
-                char s[2] = { *p, '\0' };
-                sys_print(s);
-                count++;
+                if (str && written + 1 < size)
+                    str[written] = *p;
+                written++;
                 break;
             }
         }
     }
 
+    if (str && size > 0)
+    {
+        size_t null_pos = written < size ? written : size - 1;
+        str[null_pos] = '\0';
+    }
+
+    return (int)written;
+}
+
+int snprintf(char* str, size_t size, const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    int res = vsnprintf(str, size, fmt, args);
     va_end(args);
-    return count;
+    return res;
+}
+
+int sprintf(char* str, const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    int res = vsnprintf(str, 0x7FFFFFFF, fmt, args);
+    va_end(args);
+    return res;
+}
+
+int vfprintf(FILE* stream, const char* fmt, va_list args)
+{
+    char buf[1024];
+    int n = vsnprintf(buf, sizeof(buf), fmt, args);
+    if (n > 0)
+    {
+        fwrite(buf, 1, (size_t)n, stream);
+    }
+    return n;
+}
+
+int fprintf(FILE* stream, const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    int res = vfprintf(stream, fmt, args);
+    va_end(args);
+    return res;
+}
+
+int printf(const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    int res = vfprintf(stdout, fmt, args);
+    va_end(args);
+    return res;
+}
+
+// ============================================================================
+// Standard Utilities (atoi, atol, rand, srand, qsort, abs)
+// ============================================================================
+
+int atoi(const char* s)
+{
+    return (int)atol(s);
+}
+
+long atol(const char* s)
+{
+    long res = 0;
+    int sign = 1;
+    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
+    if (*s == '-') { sign = -1; s++; }
+    else if (*s == '+') { s++; }
+    while (*s >= '0' && *s <= '9')
+    {
+        res = res * 10 + (*s - '0');
+        s++;
+    }
+    return res * sign;
+}
+
+int abs(int j)
+{
+    return (j < 0) ? -j : j;
+}
+
+static unsigned long g_rand_next = 1;
+
+int rand(void)
+{
+    g_rand_next = g_rand_next * 1103515245 + 12345;
+    return (unsigned int)(g_rand_next / 65536) % 32768;
+}
+
+void srand(unsigned int seed)
+{
+    g_rand_next = seed;
+}
+
+static void swap_bytes(uint8_t* a, uint8_t* b, size_t size)
+{
+    while (size--)
+    {
+        uint8_t tmp = *a;
+        *a++ = *b;
+        *b++ = tmp;
+    }
+}
+
+void qsort(void* base, size_t nmemb, size_t size, int (*compar)(const void*, const void*))
+{
+    if (nmemb < 2 || size == 0 || !base || !compar) return;
+
+    uint8_t* arr = (uint8_t*)base;
+    size_t pivot_idx = nmemb - 1;
+    uint8_t* pivot = arr + (pivot_idx * size);
+    size_t i = 0;
+
+    for (size_t j = 0; j < pivot_idx; j++)
+    {
+        if (compar(arr + (j * size), pivot) <= 0)
+        {
+            swap_bytes(arr + (i * size), arr + (j * size), size);
+            i++;
+        }
+    }
+    swap_bytes(arr + (i * size), pivot, size);
+
+    qsort(arr, i, size, compar);
+    qsort(arr + ((i + 1) * size), nmemb - i - 1, size, compar);
 }

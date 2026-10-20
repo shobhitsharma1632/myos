@@ -43,6 +43,10 @@ if(MKFS_FAT_EXECUTABLE AND MCOPY_EXECUTABLE AND MMD_EXECUTABLE AND DD_EXECUTABLE
         COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/calc.elf" "::bin/calc.elf"
         COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/counter.elf" "::bin/counter.elf"
         COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/cat.elf" "::bin/cat.elf"
+        COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/wc.elf" "::bin/wc.elf"
+        COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/grep.elf" "::bin/grep.elf"
+        COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/sh.elf" "::bin/sh.elf"
+        COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/snake.elf" "::bin/snake.elf"
         COMMAND ${PYTHON3_EXECUTABLE} ${INSTALL_BOOTLOADER_PY} ${FLOPPY_IMAGE} ${BOOTLOADER_STAGE1_BIN} ${BOOTLOADER_STAGE1_MAP} ${BOOTLOADER_STAGE2_BIN} 0
         DEPENDS bootloader_stage1 bootloader_stage2 kernel user_apps
         COMMENT "Creating floppy image with patched bootloader and sample files"

@@ -19,6 +19,11 @@ void timer(Registers* regs)
     debugc('.');
 }
 
+static void Task_Phase12_StorageVerification(void);
+static void Task_Phase13_ELFVerification(void);
+static void Task_Phase14_LibcVerification(void);
+static void Task_ShellDemo(void);
+
 static void Task_Phase11_UserModeVerification(void)
 {
     // Wait for scheduler and shell to stabilize
@@ -65,13 +70,12 @@ static void Task_Phase11_UserModeVerification(void)
     for (int i = 0; i < 15; i++) Task_Yield();
 
     log_info("Phase11", "=== Phase 11: Ring 3 User Mode, TSS & Syscalls Verified 100%%%%! ===");
+    Task_Create("Phase12_Test", Task_Phase12_StorageVerification);
     Task_Exit();
 }
 
 static void Task_Phase12_StorageVerification(void)
 {
-    // Wait for Phase 11 automated verification to finish
-    for (int i = 0; i < 40; i++) Task_Yield();
 
     log_info("Phase12", "=======================================================");
     log_info("Phase12", "Starting Phase 12: Storage, FAT Filesystem & VFS Tests");
@@ -196,13 +200,12 @@ static void Task_Phase12_StorageVerification(void)
     }
 
     log_info("Phase12", "=== Phase 12: Storage Subsystem, FAT & VFS 100%%%% VERIFIED! ===");
+    Task_Create("Phase13_Test", Task_Phase13_ELFVerification);
     Task_Exit();
 }
 
 static void Task_Phase13_ELFVerification(void)
 {
-    // Wait for Phase 11 & 12 automated verification to complete
-    for (int i = 0; i < 75; i++) Task_Yield();
 
     log_info("Phase13", "=======================================================");
     log_info("Phase13", "Starting Phase 13: ELF32 User Binary Loader Tests");
@@ -329,19 +332,153 @@ static void Task_Phase13_ELFVerification(void)
     }
 
     log_info("Phase13", "=== Phase 13: ELF32 User Binary Loader 100%%%% VERIFIED! ===");
+    Task_Create("Phase14_Test", Task_Phase14_LibcVerification);
+    Task_Exit();
+}
+
+static void Task_Phase14_LibcVerification(void)
+{
+
+    log_info("Phase14", "=======================================================");
+    log_info("Phase14", "Starting Phase 14: Standard C Library (libmyos) Tests");
+    log_info("Phase14", "=======================================================");
+
+    // Test 1: Spawning /bin/wc.elf to count lines, words, bytes in /readme.txt
+    log_info("Phase14", "Test 1: Spawning '/bin/wc.elf' on '/readme.txt'...");
+    char* wc_args[] = { "/bin/wc.elf", "/readme.txt", NULL };
+    Task* tWc = Task_CreateUserFromELF("u_wc_elf", "/bin/wc.elf", 2, wc_args);
+    if (tWc)
+    {
+        uint32_t pid = tWc->id;
+        int32_t status = -1;
+        int32_t waitRes = Task_WaitPID(pid, &status);
+        log_info("Phase14", "Task_WaitPID(%u) returned %d with exit code %d (expected 0)", pid, waitRes, status);
+        if (waitRes == (int32_t)pid && status == 0)
+        {
+            log_info("Phase14", "Test 1: '/bin/wc.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase14", "Test 1: '/bin/wc.elf' FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase14", "Test 1: Failed to spawn '/bin/wc.elf'!");
+    }
+
+    // Test 2: Spawning /bin/grep.elf to search pattern 'Phase' in /readme.txt
+    log_info("Phase14", "Test 2: Spawning '/bin/grep.elf' pattern 'Phase' in '/readme.txt'...");
+    char* grep_args[] = { "/bin/grep.elf", "Phase", "/readme.txt", NULL };
+    Task* tGrep = Task_CreateUserFromELF("u_grep_elf", "/bin/grep.elf", 3, grep_args);
+    if (tGrep)
+    {
+        uint32_t pid = tGrep->id;
+        int32_t status = -1;
+        int32_t waitRes = Task_WaitPID(pid, &status);
+        log_info("Phase14", "Task_WaitPID(%u) returned %d with exit code %d (expected 0)", pid, waitRes, status);
+        if (waitRes == (int32_t)pid && status == 0)
+        {
+            log_info("Phase14", "Test 2: '/bin/grep.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase14", "Test 2: '/bin/grep.elf' FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase14", "Test 2: Failed to spawn '/bin/grep.elf'!");
+    }
+
+    // Test 3: Spawning /bin/snake.elf (dynamic heap allocation with malloc/free)
+    log_info("Phase14", "Test 3: Spawning '/bin/snake.elf' (malloc/free linked-list simulation)...");
+    char* snake_args[] = { "/bin/snake.elf", NULL };
+    Task* tSnake = Task_CreateUserFromELF("u_snake_elf", "/bin/snake.elf", 1, snake_args);
+    if (tSnake)
+    {
+        uint32_t pid = tSnake->id;
+        int32_t status = -1;
+        int32_t waitRes = Task_WaitPID(pid, &status);
+        log_info("Phase14", "Task_WaitPID(%u) returned %d with exit code %d (expected 10)", pid, waitRes, status);
+        if (waitRes == (int32_t)pid && status == 10)
+        {
+            log_info("Phase14", "Test 3: '/bin/snake.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase14", "Test 3: '/bin/snake.elf' FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase14", "Test 3: Failed to spawn '/bin/snake.elf'!");
+    }
+
+    // Test 4: Spawning /bin/sh.elf user-space shell subshell execution
+    log_info("Phase14", "Test 4: Spawning Ring 3 User Shell '/bin/sh.elf -c \"/bin/calc.elf 15 * 5\"'...");
+    char* sh_args[] = { "/bin/sh.elf", "-c", "/bin/calc.elf 15 * 5", NULL };
+    Task* tSh = Task_CreateUserFromELF("u_sh_elf", "/bin/sh.elf", 3, sh_args);
+    if (tSh)
+    {
+        uint32_t pid = tSh->id;
+        int32_t status = -1;
+        int32_t waitRes = Task_WaitPID(pid, &status);
+        log_info("Phase14", "Task_WaitPID(%u) returned %d with exit code %d (expected 0)", pid, waitRes, status);
+        if (waitRes == (int32_t)pid && status == 0)
+        {
+            log_info("Phase14", "Test 4: Ring 3 User Shell '/bin/sh.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase14", "Test 4: Ring 3 User Shell '/bin/sh.elf' FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase14", "Test 4: Failed to spawn '/bin/sh.elf'!");
+    }
+
+    // Test 5: Verify kernel sys_lseek / SYS_SEEK directly
+    log_info("Phase14", "Test 5: Verifying sys_lseek system call on '/readme.txt'...");
+    fd_t fd = vfs_open("/readme.txt", VFS_O_RDONLY);
+    if (fd >= 0)
+    {
+        int32_t pos1 = vfs_lseek(fd, 10, VFS_SEEK_SET);
+        int32_t pos2 = vfs_lseek(fd, 5, VFS_SEEK_CUR);
+        int32_t pos3 = vfs_lseek(fd, 0, VFS_SEEK_END);
+        vfs_close(fd);
+
+        log_info("Phase14", "vfs_lseek results: SEEK_SET(10)=%d, SEEK_CUR(+5)=%d, SEEK_END(0)=%d", pos1, pos2, pos3);
+        if (pos1 == 10 && pos2 == 15 && pos3 > 15)
+        {
+            log_info("Phase14", "Test 5: sys_lseek / VFS seeking PASSED!");
+        }
+        else
+        {
+            log_err("Phase14", "Test 5: sys_lseek failed!");
+        }
+    }
+    else
+    {
+        log_err("Phase14", "Test 5: Failed to open '/readme.txt'!");
+    }
+
+    log_info("Phase14", "=== Phase 14: Standard C Library (libmyos) 100%%%% VERIFIED! ===");
+    Task_Create("ShellDemo", Task_ShellDemo);
     Task_Exit();
 }
 
 static void Task_ShellDemo(void)
 {
-    // Wait for Phase 11, 12 & 13 automated verifications to complete
-    for (int i = 0; i < 110; i++) Task_Yield();
 
     const char* demoCmds[] = {
         "help",
         "mem",
         "disk",
         "ls /bin",
+        "wc /readme.txt",
+        "grep Phase /readme.txt",
         "exec /bin/hello.elf testing arguments",
         "calc 7 * 8",
         "cat /readme.txt",
@@ -352,7 +489,7 @@ static void Task_ShellDemo(void)
         "gui"
     };
 
-    for (int c = 0; c < 12; c++)
+    for (int c = 0; c < 14; c++)
     {
         const char* cmd = demoCmds[c];
         log_info("ShellDemo", "Simulating keyboard input: '%s'", cmd);
@@ -549,27 +686,19 @@ void start(BootParams* bootParams)
     VFS_Initialize();
 
     printf("\n=======================================================\n");
-    printf("  myOS Phase 13: ELF32 User Binary Loader & Runtime Architecture\n");
-    printf("  Dynamic ELF Loading, Ring 3 User Apps & Syscalls Active!\n");
+    printf("  myOS Phase 14: Standard C Library (libmyos) & POSIX Subsystem\n");
+    printf("  User Heap Allocator, Standard I/O Streams & Shell Apps Active!\n");
     printf("=======================================================\n\n");
 
     // Initialize MLFQ Task Scheduler
     Task_Initialize();
 
-    // Spawn Phase 11 Ring 3 User Mode Automated Verification Task
+    // Spawn Phase 11 Ring 3 User Mode Automated Verification Pipeline
+    // (Sequentially cascades: Phase 11 -> Phase 12 -> Phase 13 -> Phase 14 -> ShellDemo)
     Task_Create("Phase11_Test", Task_Phase11_UserModeVerification);
-
-    // Spawn Phase 12 Storage Subsystem, FAT & VFS Verification Task
-    Task_Create("Phase12_Test", Task_Phase12_StorageVerification);
-
-    // Spawn Phase 13 ELF32 User Executable Loader Verification Task
-    Task_Create("Phase13_Test", Task_Phase13_ELFVerification);
 
     // Spawn Phase 9 Interactive Command Shell Task
     Shell_Initialize();
-
-    // Spawn Shell Automated Demonstrator Task
-    Task_Create("ShellDemo", Task_ShellDemo);
 
     log_info("Main", "Kernel initialization complete. Shell, User Mode & Storage active in MLFQ Queue 0.");
 

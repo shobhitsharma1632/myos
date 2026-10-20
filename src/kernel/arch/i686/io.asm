@@ -62,6 +62,10 @@ i686_EnableInterrupts:
 
 global i686_DisableInterrupts
 i686_DisableInterrupts:
+    pushfd
+    pop eax
+    shr eax, 9
+    and eax, 1
     cli
     ret
 

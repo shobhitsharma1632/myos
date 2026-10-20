@@ -172,6 +172,7 @@ bool ATA_ReadSectors(uint32_t lba, uint8_t count, void* buffer)
     if (!g_AtaDevice.present || !buffer)
         return false;
 
+    uint8_t ints = i686_DisableInterrupts();
     uint16_t* ptr = (uint16_t*)buffer;
 
     for (uint8_t s = 0; s < count; s++)
@@ -179,7 +180,10 @@ bool ATA_ReadSectors(uint32_t lba, uint8_t count, void* buffer)
         uint32_t cur_lba = lba + s;
 
         if (!ATA_WaitNotBusy())
+        {
+            if (ints) i686_EnableInterrupts();
             return false;
+        }
 
         i686_outb(ATA_DRIVE_PORT, 0xE0 | ((cur_lba >> 24) & 0x0F));
         ATA_Delay400ns();
@@ -193,7 +197,10 @@ bool ATA_ReadSectors(uint32_t lba, uint8_t count, void* buffer)
         ATA_Delay400ns();
 
         if (!ATA_WaitDRQ())
+        {
+            if (ints) i686_EnableInterrupts();
             return false;
+        }
 
         for (int w = 0; w < 256; w++)
         {
@@ -201,6 +208,7 @@ bool ATA_ReadSectors(uint32_t lba, uint8_t count, void* buffer)
         }
     }
 
+    if (ints) i686_EnableInterrupts();
     return true;
 }
 
@@ -209,6 +217,7 @@ bool ATA_WriteSectors(uint32_t lba, uint8_t count, const void* buffer)
     if (!g_AtaDevice.present || !buffer)
         return false;
 
+    uint8_t ints = i686_DisableInterrupts();
     const uint16_t* ptr = (const uint16_t*)buffer;
 
     for (uint8_t s = 0; s < count; s++)
@@ -216,7 +225,10 @@ bool ATA_WriteSectors(uint32_t lba, uint8_t count, const void* buffer)
         uint32_t cur_lba = lba + s;
 
         if (!ATA_WaitNotBusy())
+        {
+            if (ints) i686_EnableInterrupts();
             return false;
+        }
 
         i686_outb(ATA_DRIVE_PORT, 0xE0 | ((cur_lba >> 24) & 0x0F));
         ATA_Delay400ns();
@@ -230,7 +242,10 @@ bool ATA_WriteSectors(uint32_t lba, uint8_t count, const void* buffer)
         ATA_Delay400ns();
 
         if (!ATA_WaitDRQ())
+        {
+            if (ints) i686_EnableInterrupts();
             return false;
+        }
 
         for (int w = 0; w < 256; w++)
         {
@@ -238,11 +253,10 @@ bool ATA_WriteSectors(uint32_t lba, uint8_t count, const void* buffer)
         }
 
         ATA_Delay400ns();
-        if (!ATA_WaitNotBusy())
-            return false;
     }
 
     ATA_FlushCache();
+    if (ints) i686_EnableInterrupts();
     return true;
 }
 

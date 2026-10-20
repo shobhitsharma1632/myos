@@ -7,6 +7,8 @@
 #include <hal/pmm.h>
 #include <hal/vfs.h>
 #include <stdio.h>
+#include <string.h>
+#include <memory.h>
 #include <debug.h>
 
 #define MODULE "Syscall"
@@ -154,7 +156,18 @@ void Syscall_Handler(Registers* regs)
             }
 
             uint32_t old_break = current->user_heap_break;
+            if (increment == 0)
+            {
+                regs->eax = old_break;
+                break;
+            }
+
             uint32_t new_break = old_break + increment;
+            if (new_break < 0x40200000 || new_break > 0x48000000)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
 
             // Check if expanding into new 4 KiB pages
             uint32_t cur_page = (old_break + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
@@ -162,13 +175,42 @@ void Syscall_Handler(Registers* regs)
 
             while (cur_page < req_page)
             {
+                if (current->elf_pages_count >= 256)
+                {
+                    regs->eax = (uint32_t)-1;
+                    return;
+                }
+
                 void* p = PMM_AllocatePage();
                 if (!p)
                 {
                     regs->eax = (uint32_t)-1;
                     return;
                 }
+                memset(p, 0, PAGE_SIZE);
+
+                // Check if page table exists for this PDE in current process's PD
+                uint32_t pde_idx = (cur_page >> 22) & 0x3FF;
+                if (!(VMM_PAGE_DIRECTORY_VIRT[pde_idx] & PAGE_PRESENT))
+                {
+                    void* new_pt = PMM_AllocatePage();
+                    if (!new_pt)
+                    {
+                        PMM_FreePage(p);
+                        regs->eax = (uint32_t)-1;
+                        return;
+                    }
+                    memset(new_pt, 0, PAGE_SIZE);
+                    if (current->elf_pts_count < 32)
+                    {
+                        current->elf_pts_phys[current->elf_pts_count++] = new_pt;
+                    }
+                    VMM_PAGE_DIRECTORY_VIRT[pde_idx] = ((uint32_t)new_pt & ~0xFFF) | PAGE_PRESENT | PAGE_WRITE | PAGE_USER;
+                    i686_VMM_FlushTLB((uint32_t)VMM_PAGE_TABLE_VIRT(pde_idx));
+                }
+
                 VMM_MapPage((void*)cur_page, p, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+                current->elf_pages_phys[current->elf_pages_count++] = p;
                 cur_page += PAGE_SIZE;
             }
 
@@ -292,6 +334,15 @@ void Syscall_Handler(Registers* regs)
 
             int32_t res = Task_WaitPID((uint32_t)pid, status);
             regs->eax = (uint32_t)res;
+            break;
+        }
+
+        case SYS_SEEK:
+        {
+            int fd = (int)arg1;
+            int32_t offset = (int32_t)arg2;
+            int whence = (int)arg3;
+            regs->eax = (uint32_t)vfs_lseek(fd, offset, whence);
             break;
         }
 

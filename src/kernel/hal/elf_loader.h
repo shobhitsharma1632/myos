@@ -44,8 +44,8 @@ typedef struct {
 #define PF_W                    2
 #define PF_R                    4
 
-#define ELF_MAX_TRACKED_PAGES   64
-#define ELF_MAX_TRACKED_PTS     16
+#define ELF_MAX_TRACKED_PAGES   256
+#define ELF_MAX_TRACKED_PTS     32
 
 #define USER_STACK_TOP          0x40100000 // 1 GiB + 1 MiB boundary
 #define USER_STACK_PAGES        4          // 16 KiB user stack
