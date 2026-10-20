@@ -99,23 +99,36 @@ static void Shell_ComputeWorker(void)
     }
 }
 
-static void Shell_ExecuteELF(const char* filepath, int argc, char* const argv[])
+static int Shell_ExecuteELF(const char* filepath, int argc, char* const argv[], bool wait_for_exit)
 {
-    shell_print("Launching '%s' in Ring 3 user mode...\n", filepath);
+    Task* cur = Task_GetCurrent();
+    bool redirected = (cur && cur->fd_table[1] != 1);
+
+    if (!redirected)
+    {
+        shell_print("Launching '%s' in Ring 3 user mode...\n", filepath);
+    }
+
     Task* child = Task_CreateUserFromELF(filepath, filepath, argc, argv);
     if (!child)
     {
         shell_print("Error: Failed to load and execute '%s'!\n", filepath);
-        return;
+        return -1;
     }
 
     uint32_t pid = child->id;
+    if (!wait_for_exit)
+    {
+        return (int)pid;
+    }
+
     int32_t exit_code = 0;
     int32_t waitRes = Task_WaitPID(pid, &exit_code);
-    if (waitRes >= 0)
+    if (waitRes >= 0 && !redirected)
     {
         shell_print("[Process %u terminated with exit code %d]\n", pid, exit_code);
     }
+    return (int)pid;
 }
 
 static size_t Shell_ReadLine(char* buffer, size_t maxLen)
@@ -163,32 +176,91 @@ static size_t Shell_ReadLine(char* buffer, size_t maxLen)
     }
 }
 
-void Shell_Execute(char* cmdLine)
+static int Shell_ExecuteSingle(char* cmdLine, bool wait_for_exit)
 {
     // Skip leading spaces
     while (*cmdLine == ' ' || *cmdLine == '\t') cmdLine++;
-    if (*cmdLine == '\0') return;
+    if (*cmdLine == '\0') return -1;
+    int child_pid = -1;
 
-    // Split command line into tokens
+    // Split command line into tokens and parse redirection
     char* argv[MAX_ARGS];
     int argc = 0;
-    char* p = cmdLine;
+    char* infile = NULL;
+    char* outfile = NULL;
+    bool append_out = false;
 
-    while (*p && argc < MAX_ARGS)
+    char* p = cmdLine;
+    while (*p && argc < MAX_ARGS - 1)
     {
         while (*p == ' ' || *p == '\t') p++;
         if (*p == '\0') break;
 
-        argv[argc++] = p;
+        char* token = p;
         while (*p && *p != ' ' && *p != '\t') p++;
-        if (*p)
+        if (*p) { *p = '\0'; p++; }
+
+        if (str_cmp(token, "<") == 0)
         {
-            *p = '\0';
-            p++;
+            while (*p == ' ' || *p == '\t') p++;
+            infile = p;
+            while (*p && *p != ' ' && *p != '\t') p++;
+            if (*p) { *p = '\0'; p++; }
+        }
+        else if (str_cmp(token, ">>") == 0)
+        {
+            while (*p == ' ' || *p == '\t') p++;
+            outfile = p;
+            append_out = true;
+            while (*p && *p != ' ' && *p != '\t') p++;
+            if (*p) { *p = '\0'; p++; }
+        }
+        else if (str_cmp(token, ">") == 0)
+        {
+            while (*p == ' ' || *p == '\t') p++;
+            outfile = p;
+            append_out = false;
+            while (*p && *p != ' ' && *p != '\t') p++;
+            if (*p) { *p = '\0'; p++; }
+        }
+        else
+        {
+            argv[argc++] = token;
         }
     }
+    argv[argc] = NULL;
+    if (argc == 0) return -1;
 
-    if (argc == 0) return;
+    int saved_stdin = -1;
+    int saved_stdout = -1;
+
+    if (infile)
+    {
+        int fd_in = vfs_open(infile, VFS_O_RDONLY);
+        if (fd_in < 0)
+        {
+            shell_print("shell: cannot open input file '%s'\n", infile);
+            return -1;
+        }
+        saved_stdin = vfs_dup(0);
+        vfs_dup2(fd_in, 0);
+        vfs_close(fd_in);
+    }
+
+    if (outfile)
+    {
+        int flags = VFS_O_WRONLY | VFS_O_CREAT | (append_out ? VFS_O_APPEND : VFS_O_TRUNC);
+        int fd_out = vfs_open(outfile, flags);
+        if (fd_out < 0)
+        {
+            shell_print("shell: cannot open output file '%s'\n", outfile);
+            if (saved_stdin >= 0) { vfs_dup2(saved_stdin, 0); vfs_close(saved_stdin); }
+            return -1;
+        }
+        saved_stdout = vfs_dup(1);
+        vfs_dup2(fd_out, 1);
+        vfs_close(fd_out);
+    }
 
     const char* cmd = argv[0];
 
@@ -254,7 +326,7 @@ void Shell_Execute(char* cmdLine)
         if (argc < 2)
         {
             shell_print("Usage: spawn <task_name> [interactive|compute]\n");
-            return;
+            return -1;
         }
 
         const char* name = argv[1];
@@ -277,7 +349,7 @@ void Shell_Execute(char* cmdLine)
         if (argc < 2)
         {
             shell_print("Usage: kill <pid>\n");
-            return;
+            return -1;
         }
 
         uint32_t pid = (uint32_t)str_to_int(argv[1]);
@@ -328,7 +400,7 @@ void Shell_Execute(char* cmdLine)
             shell_print("  test-gp  - Test Ring 3 fault isolation (privileged 'cli' triggers #GP)\n");
             shell_print("  test-pf  - Test Ring 3 MMU memory protection (kernel read triggers #PF)\n");
             shell_print("  test-all - Run all Ring 3 verification tests in sequence\n");
-            return;
+            return -1;
         }
 
         const char* sub = argv[1];
@@ -588,7 +660,7 @@ void Shell_Execute(char* cmdLine)
                 child_argv[i] = argv[i + 1];
             }
             child_argv[child_argc] = NULL;
-            Shell_ExecuteELF(path, child_argc, child_argv);
+            child_pid = Shell_ExecuteELF(path, child_argc, child_argv, wait_for_exit);
         }
     }
     else
@@ -624,11 +696,119 @@ void Shell_Execute(char* cmdLine)
 
         if (found)
         {
-            Shell_ExecuteELF(tryPath, argc, argv);
+            child_pid = Shell_ExecuteELF(tryPath, argc, argv, wait_for_exit);
         }
         else
         {
             shell_print("Unknown command: '%s'. Type 'help' for available commands.\n", cmd);
+        }
+    }
+
+    if (saved_stdin >= 0)
+    {
+        vfs_dup2(saved_stdin, 0);
+        vfs_close(saved_stdin);
+    }
+    if (saved_stdout >= 0)
+    {
+        vfs_dup2(saved_stdout, 1);
+        vfs_close(saved_stdout);
+    }
+
+    return child_pid;
+}
+
+void Shell_Execute(char* cmdLine)
+{
+    // Skip leading spaces
+    while (*cmdLine == ' ' || *cmdLine == '\t') cmdLine++;
+    if (*cmdLine == '\0') return;
+
+    // Check if line contains pipe '|'
+    const char* pipe_pos = strchr(cmdLine, '|');
+    if (!pipe_pos)
+    {
+        Shell_ExecuteSingle(cmdLine, true);
+        return;
+    }
+
+    // Split pipeline into stages
+    char* stages[8];
+    int num_stages = 0;
+    char* curr = cmdLine;
+
+    while (curr && num_stages < 8)
+    {
+        stages[num_stages++] = curr;
+        const char* next = strchr(curr, '|');
+        if (next)
+        {
+            *(char*)next = '\0';
+            curr = (char*)next + 1;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    int prev_read_fd = -1;
+    int pids[8];
+    for (int i = 0; i < 8; i++) pids[i] = -1;
+
+    for (int i = 0; i < num_stages; i++)
+    {
+        int next_pfd[2] = { -1, -1 };
+        if (i < num_stages - 1)
+        {
+            if (vfs_pipe(next_pfd) < 0)
+            {
+                shell_print("shell: failed to create pipe\n");
+                return;
+            }
+        }
+
+        int saved_in = vfs_dup(0);
+        int saved_out = vfs_dup(1);
+
+        if (prev_read_fd >= 0)
+        {
+            vfs_dup2(prev_read_fd, 0);
+            vfs_close(prev_read_fd);
+            prev_read_fd = -1;
+        }
+
+        if (next_pfd[1] >= 0)
+        {
+            vfs_dup2(next_pfd[1], 1);
+            vfs_close(next_pfd[1]);
+        }
+
+        pids[i] = Shell_ExecuteSingle(stages[i], false);
+
+        vfs_dup2(saved_in, 0);
+        vfs_close(saved_in);
+        vfs_dup2(saved_out, 1);
+        vfs_close(saved_out);
+
+        if (next_pfd[0] >= 0)
+        {
+            prev_read_fd = next_pfd[0];
+        }
+    }
+
+    if (prev_read_fd >= 0)
+    {
+        vfs_close(prev_read_fd);
+    }
+
+    // Wait for all spawned child pipeline stages
+    for (int i = 0; i < num_stages; i++)
+    {
+        if (pids[i] > 0)
+        {
+            int32_t status = -1;
+            Task_WaitPID((uint32_t)pids[i], &status);
         }
     }
 }

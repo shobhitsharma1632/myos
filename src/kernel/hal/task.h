@@ -15,6 +15,7 @@
 
 #define TASK_STACK_SIZE         8192
 #define TASK_MAGIC              0x7A5C1337
+#define TASK_MAX_FDS            16
 
 typedef enum {
     TASK_READY,
@@ -53,6 +54,9 @@ struct Task {
     void*       elf_pages_phys[256];
     size_t      elf_pts_count;
     void*       elf_pts_phys[32];
+
+    // File Descriptor Table (POSIX VFS)
+    int         fd_table[TASK_MAX_FDS];
 
     // MLFQ Scheduling Fields
     uint8_t     priority;           // Current MLFQ level: 0, 1, or 2

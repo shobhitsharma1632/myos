@@ -26,6 +26,9 @@
 #define SYS_NET_INFO    19  // Get network interface details (ebx = NetInfoUser ptr)
 #define SYS_NET_PING    20  // ICMP ping (ebx = target_ip, ecx = timeout_ms)
 #define SYS_NET_SEND_UDP 21 // Send UDP packet (ebx = ip, ecx = port_pair, edx = data_ptr)
+#define SYS_PIPE        22  // Create unidirectional pipe (ebx = pipefd[2])
+#define SYS_DUP         23  // Duplicate file descriptor (ebx = oldfd)
+#define SYS_DUP2        24  // Duplicate file descriptor to specific newfd (ebx = oldfd, ecx = newfd)
 
 typedef struct {
     uint8_t  mac[6];
@@ -181,4 +184,19 @@ static inline int32_t sys_net_info(NetInfoUser* info)
 static inline int32_t sys_net_ping(uint32_t target_ip, uint32_t timeout_ms)
 {
     return syscall2(SYS_NET_PING, target_ip, timeout_ms);
+}
+
+static inline int32_t sys_pipe(int pipefd[2])
+{
+    return syscall1(SYS_PIPE, (uint32_t)pipefd);
+}
+
+static inline int32_t sys_dup(int oldfd)
+{
+    return syscall1(SYS_DUP, (uint32_t)oldfd);
+}
+
+static inline int32_t sys_dup2(int oldfd, int newfd)
+{
+    return syscall2(SYS_DUP2, (uint32_t)oldfd, (uint32_t)newfd);
 }

@@ -49,6 +49,8 @@ if(MKFS_FAT_EXECUTABLE AND MCOPY_EXECUTABLE AND MMD_EXECUTABLE AND DD_EXECUTABLE
         COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/snake.elf" "::bin/snake.elf"
         COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/ifconfig.elf" "::bin/ifconfig.elf"
         COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/ping.elf" "::bin/ping.elf"
+        COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/tee.elf" "::bin/tee.elf"
+        COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/head.elf" "::bin/head.elf"
         COMMAND ${PYTHON3_EXECUTABLE} ${INSTALL_BOOTLOADER_PY} ${FLOPPY_IMAGE} ${BOOTLOADER_STAGE1_BIN} ${BOOTLOADER_STAGE1_MAP} ${BOOTLOADER_STAGE2_BIN} 0
         DEPENDS bootloader_stage1 bootloader_stage2 kernel user_apps
         COMMENT "Creating floppy image with patched bootloader and sample files"

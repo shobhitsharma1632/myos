@@ -115,6 +115,36 @@ int sys_waitpid(int pid, int* status)
     return syscall2(17, (uint32_t)pid, (uint32_t)status);
 }
 
+int sys_pipe(int pipefd[2])
+{
+    return syscall1(22, (uint32_t)pipefd);
+}
+
+int sys_dup(int oldfd)
+{
+    return syscall1(23, (uint32_t)oldfd);
+}
+
+int sys_dup2(int oldfd, int newfd)
+{
+    return syscall2(24, (uint32_t)oldfd, (uint32_t)newfd);
+}
+
+int pipe(int pipefd[2])
+{
+    return sys_pipe(pipefd);
+}
+
+int dup(int oldfd)
+{
+    return sys_dup(oldfd);
+}
+
+int dup2(int oldfd, int newfd)
+{
+    return sys_dup2(oldfd, newfd);
+}
+
 // ============================================================================
 // User-Space Dynamic Memory Management (malloc, free, calloc, realloc)
 // ============================================================================

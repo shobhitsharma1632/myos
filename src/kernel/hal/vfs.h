@@ -34,6 +34,8 @@ typedef struct {
     uint8_t     attributes;
 } VFS_Stat;
 
+struct Task;
+
 void VFS_Initialize(void);
 
 // POSIX-style VFS API
@@ -42,9 +44,17 @@ int  vfs_read(fd_t fd, void* buf, size_t count);
 int  vfs_write(fd_t fd, const void* buf, size_t count);
 int  vfs_lseek(fd_t fd, int32_t offset, int whence);
 int  vfs_close(fd_t fd);
+int  vfs_pipe(int pipefd[2]);
+int  vfs_dup(int oldfd);
+int  vfs_dup2(int oldfd, int newfd);
 int  vfs_readdir(const char* path, size_t index, VFS_DirEntry* entry);
 int  vfs_stat(const char* path, VFS_Stat* st);
 int  vfs_touch(const char* path);
+
+// Per-Process FD lifecycle helpers
+void vfs_init_task_fds(struct Task* task);
+void vfs_clone_task_fds(struct Task* parent, struct Task* child);
+void vfs_close_task_fds(struct Task* task);
 
 // Legacy backward-compatibility wrapper
 int VFS_Write(fd_t file, uint8_t* data, size_t size);

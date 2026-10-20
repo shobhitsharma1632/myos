@@ -266,6 +266,31 @@
   - `/bin/ping.elf`: standalone Ring 3 utility pinging target IP 4 times with RTT statistics.
   - Built-in shell commands: `ifconfig` and `ping <ip>` in `shell.c`.
 
+### 12. POSIX Pipes, File Redirection & Inter-Process Communication (Phase 16)
+- **Circular Kernel Pipe Buffer (`pipe.c`, `pipe.h`):**
+  - High-performance 1024-byte FIFO ring buffer with independent read and write indices.
+  - Reference-counted reader and writer handles (`Pipe_RetainReader`, `Pipe_CloseReader`, `Pipe_RetainWriter`, `Pipe_CloseWriter`).
+  - Cooperative scheduler blocking (`Task_Yield`) when buffer is full (writer wait) or empty (reader wait).
+  - Clean POSIX semantics: `Pipe_Write` signals broken pipe (`-1`) when reader count drops to 0; `Pipe_Read` signals EOF (`0`) immediately when writer count drops to 0.
+  - Automatic memory deallocation (`kfree`) when both reader and writer reference counts reach 0.
+- **Per-Process File Descriptors & Centralized Open File Table (`task.h`, `vfs.h`, `vfs.c`):**
+  - Extended `struct Task` with virtualized `fd_table[16]` supporting up to 16 open files per task.
+  - Centralized `VFS_OpenFile g_OpenFiles[64]` table tracking stream types (`VFS_TYPE_STD`, `VFS_TYPE_FILE`, `VFS_TYPE_PIPE`), flags, offsets, reference count, and payload pointers.
+  - Automatic file descriptor inheritance across process creation (`Task_CreateUserFromELF`), descriptor cloning (`vfs_dup`, `vfs_dup2`), and cleanup on exit (`vfs_close_task_fds`).
+- **System Calls & User Runtime (`syscall.h`, `syscall.c`, `libuser.h`, `libuser.c`):**
+  - `SYS_PIPE` (22): allocates kernel pipe and assigns read/write descriptor pair to calling task.
+  - `SYS_DUP` (23): duplicates lowest available file descriptor pointing to same open file.
+  - `SYS_DUP2` (24): atomically duplicates descriptor to target index (closing previous target if open).
+  - User runtime wrappers: `sys_pipe`, `sys_dup`, `sys_dup2`, `pipe`, `dup`, `dup2`.
+- **Stdin-Aware Tools & New Standalone Utilities (`/bin/`):**
+  - Upgraded `/bin/cat.elf`, `/bin/wc.elf`, `/bin/grep.elf` to process `stdin` (fd 0) when no file operand or `"-"` is supplied.
+  - `/bin/tee.elf`: duplicates standard input to standard output and writes copies to target files simultaneously.
+  - `/bin/head.elf`: outputs the first N lines (default 10 or `-n <count>`) of standard input or files.
+- **Multi-Stage Shell Pipelines & Redirection:**
+  - Multi-stage pipeline parsing (`|`) and file redirection (`<`, `>`, `>>`) in both user subshell `sh.c` and kernel shell `shell.c`.
+  - Concurrent pipeline execution: all pipeline stages are spawned concurrently with inherited pipe descriptors and awaited in parallel, preventing deadlocks or buffer stalls on large data streams.
+  - Clean stream isolation: informational shell banners are automatically suppressed when stdout is redirected.
+
 ---
 
 ## Memory Map Layout
@@ -317,7 +342,7 @@ myos/
 │   │   └── stage2/             # 32-bit loader (E820, MBR, FAT12/16/32, ELF32)
 │   ├── kernel/
 │   │   ├── arch/i686/          # x86 CPU & device drivers (GDT, IDT, PIC, VMM, E1000 NIC)
-│   │   ├── hal/                # Hardware Abstraction Layer (PMM, VMM, Heap, VFS, ELF Loader, Shell, GUI)
+│   │   ├── hal/                # Hardware Abstraction Layer (PMM, VMM, Heap, VFS, Pipes, ELF Loader, Shell, GUI)
 │   │   ├── net/                # Network Protocol Stack (Ethernet, ARP, IPv4, ICMP, UDP)
 │   │   ├── main.c              # Kernel entry point and test suite
 │   │   └── linker.ld           # elf32-i386 kernel linker script
@@ -325,7 +350,7 @@ myos/
 │   │   ├── crt0.asm            # User-space C runtime startup
 │   │   ├── linker.ld           # User application linker script (0x40000000)
 │   │   ├── libuser.h/c         # Standard user library and syscall wrappers
-│   │   └── apps/               # Standalone applications (hello, calc, counter, cat, wc, grep, sh, snake, ifconfig, ping)
+│   │   └── apps/               # Standalone applications (hello, calc, counter, cat, wc, grep, sh, snake, ifconfig, ping, tee, head)
 │   └── libs/
 │       └── boot/
 │           └── bootparams.h    # Shared Stage 2 <-> Kernel boot data contract

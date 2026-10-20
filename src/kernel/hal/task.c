@@ -1,5 +1,6 @@
 #include "task.h"
 #include "elf_loader.h"
+#include <hal/vfs.h>
 #include <hal/heap.h>
 #include <hal/vmm.h>
 #include <hal/pmm.h>
@@ -163,6 +164,7 @@ void Task_Initialize(void)
     g_MainTask.stack_base = 0; // Boot stack (managed outside heap)
     g_MainTask.stack_size = 0;
     g_MainTask.entry = NULL;
+    vfs_init_task_fds(&g_MainTask);
 
     g_CurrentTask = &g_MainTask;
 
@@ -222,6 +224,7 @@ Task* Task_Create(const char* name, void (*entryPoint)(void))
     task->entry = entryPoint;
     task->is_user = false;
     task->kernel_stack_top = (uint32_t)stack + TASK_STACK_SIZE;
+    vfs_init_task_fds(task);
 
     // MLFQ Initial State: Queue 0 optimism for high responsiveness
     task->priority = MLFQ_PRIORITY_HIGH;
@@ -382,6 +385,7 @@ Task* Task_CreateUser(const char* name, const void* code, size_t codeSize)
     task->user_stack_virt = (uint32_t)user_stack_virt;
     task->user_heap_break = (uint32_t)user_heap_start;
     task->entry           = (void (*)(void))user_code_virt;
+    vfs_init_task_fds(task);
 
     // Forge Ring 3 interrupt stack frame on kernel stack
     uint8_t* kstack_top = (uint8_t*)task->kernel_stack_top;
@@ -431,6 +435,7 @@ void Task_ExitWithCode(int32_t code)
     Task* current = g_CurrentTask;
     if (current)
     {
+        vfs_close_task_fds(current);
         current->exit_code = code;
         current->state = TASK_TERMINATED;
         current->next = g_TerminatedHead;
@@ -477,6 +482,7 @@ bool Task_Kill(uint32_t pid)
             if (t->id == pid)
             {
                 Queue_Remove(&g_MLFQ[p], t);
+                vfs_close_task_fds(t);
                 t->state = TASK_TERMINATED;
                 t->reapable = true;
                 t->next = g_TerminatedHead;
@@ -609,6 +615,7 @@ Task* Task_CreateUserFromELF(const char* name, const char* filepath, int argc, c
     task->stack_size = TASK_STACK_SIZE;
     task->kernel_stack_top = (uint32_t)kstack + TASK_STACK_SIZE;
     task->page_directory_phys = image->page_directory_phys;
+    vfs_clone_task_fds(g_CurrentTask, task);
     task->entry = (void (*)(void))image->entry_point;
     task->user_heap_break = image->user_heap_break;
     task->waitable = true;
@@ -912,6 +919,8 @@ Registers* Task_Schedule(Registers* currentRegs)
 
             log_info(MODULE, "Reaper: Safely freed stack (0x%x) and TCB for terminated %s task '%s' (PID %u)",
                      term->stack_base, term->is_user ? "User" : "Kernel", term->name, term->id);
+
+            vfs_close_task_fds(term);
 
             // Free user-mode virtual memory mappings and physical frames
             if (term->is_user)

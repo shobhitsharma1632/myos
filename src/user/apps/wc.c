@@ -2,18 +2,19 @@
 
 int main(int argc, char* argv[])
 {
-    if (argc < 2)
-    {
-        printf("Usage: wc <filepath>\n");
-        return 1;
-    }
+    FILE* fp = stdin;
+    const char* path = "";
+    bool is_stdin = (argc < 2 || strcmp(argv[1], "-") == 0);
 
-    const char* path = argv[1];
-    FILE* fp = fopen(path, "r");
-    if (!fp)
+    if (!is_stdin)
     {
-        printf("wc: cannot open '%s'\n", path);
-        return 1;
+        path = argv[1];
+        fp = fopen(path, "r");
+        if (!fp)
+        {
+            fprintf(stderr, "wc: cannot open '%s'\n", path);
+            return 1;
+        }
     }
 
     int lines = 0;
@@ -39,8 +40,15 @@ int main(int argc, char* argv[])
         }
     }
 
-    fclose(fp);
+    if (!is_stdin)
+    {
+        fclose(fp);
+        printf("  %d  %d  %d  %s\n", lines, words, bytes, path);
+    }
+    else
+    {
+        printf("  %d  %d  %d\n", lines, words, bytes);
+    }
 
-    printf("  %d  %d  %d  %s\n", lines, words, bytes, path);
     return 0;
 }

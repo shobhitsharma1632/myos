@@ -2,20 +2,26 @@
 
 int main(int argc, char* argv[])
 {
-    if (argc < 3)
+    if (argc < 2)
     {
-        printf("Usage: grep <pattern> <filepath>\n");
+        fprintf(stderr, "Usage: grep <pattern> [filepath]\n");
         return 1;
     }
 
     const char* pattern = argv[1];
-    const char* path = argv[2];
+    FILE* fp = stdin;
+    const char* path = "(stdin)";
+    bool is_stdin = (argc < 3 || strcmp(argv[2], "-") == 0);
 
-    FILE* fp = fopen(path, "r");
-    if (!fp)
+    if (!is_stdin)
     {
-        printf("grep: cannot open '%s'\n", path);
-        return 1;
+        path = argv[2];
+        fp = fopen(path, "r");
+        if (!fp)
+        {
+            fprintf(stderr, "grep: cannot open '%s'\n", path);
+            return 1;
+        }
     }
 
     char line[256];
@@ -26,22 +32,28 @@ int main(int argc, char* argv[])
     {
         if (strstr(line, pattern))
         {
-            // Print matching line
-            printf("[%s:%d] %s", path, line_num, line);
-            // Ensure trailing newline if line was stripped
+            if (is_stdin)
+            {
+                printf("%s", line);
+            }
+            else
+            {
+                printf("[%s:%d] %s", path, line_num, line);
+            }
+
             size_t len = strlen(line);
             if (len > 0 && line[len - 1] != '\n')
                 printf("\n");
+
             matches++;
         }
         line_num++;
     }
 
-    fclose(fp);
-
-    if (matches == 0)
+    if (!is_stdin)
     {
-        return 1; // grep returns 1 when no pattern match found
+        fclose(fp);
     }
-    return 0;
+
+    return (matches > 0) ? 0 : 1;
 }

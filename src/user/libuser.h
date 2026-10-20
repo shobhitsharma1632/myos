@@ -119,6 +119,14 @@ int      sys_write_file(int fd, const void* buf, size_t count);
 int      sys_lseek(int fd, int offset, int whence);
 int      sys_spawn(const char* path, int argc, char* const argv[]);
 int      sys_waitpid(int pid, int* status);
+int      sys_pipe(int pipefd[2]);
+int      sys_dup(int oldfd);
+int      sys_dup2(int oldfd, int newfd);
+
+// POSIX Pipe & File Descriptor Aliases
+int      pipe(int pipefd[2]);
+int      dup(int oldfd);
+int      dup2(int oldfd, int newfd);
 
 // Network Subsystem API
 typedef struct {

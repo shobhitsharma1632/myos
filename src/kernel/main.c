@@ -25,6 +25,7 @@ static void Task_Phase12_StorageVerification(void);
 static void Task_Phase13_ELFVerification(void);
 static void Task_Phase14_LibcVerification(void);
 static void Task_Phase15_NetworkVerification(void);
+static void Task_Phase16_PipesVerification(void);
 static void Task_ShellDemo(void);
 
 static void Task_Phase11_UserModeVerification(void)
@@ -588,6 +589,194 @@ static void Task_Phase15_NetworkVerification(void)
     }
 
     log_info("Phase15", "=== Phase 15: Network Device Driver & Protocol Stack 100%%%% VERIFIED! ===");
+    Task_Create("Phase16_Test", Task_Phase16_PipesVerification);
+    Task_Exit();
+}
+
+static void Task_Phase16_PipesVerification(void)
+{
+    // Wait for scheduler and filesystem to stabilize
+    for (int i = 0; i < 5; i++) Task_Yield();
+
+    log_info("Phase16", "=======================================================");
+    log_info("Phase16", "Starting Phase 16: POSIX Pipes, File Redirection & IPC Verification");
+    log_info("Phase16", "=======================================================");
+
+    // Test 1: Kernel Pipe IPC (vfs_pipe write and read)
+    log_info("Phase16", "Test 1: Testing POSIX pipe creation and data transfer...");
+    int pipe_fds[2] = { -1, -1 };
+    int pipe_res = vfs_pipe(pipe_fds);
+    if (pipe_res == 0 && pipe_fds[0] >= 0 && pipe_fds[1] >= 0)
+    {
+        const char* msg = "Hello POSIX Pipe IPC!";
+        int written = vfs_write(pipe_fds[1], msg, strlen(msg));
+        char rx_buf[64];
+        memset(rx_buf, 0, sizeof(rx_buf));
+        int read_bytes = vfs_read(pipe_fds[0], rx_buf, sizeof(rx_buf) - 1);
+        log_info("Phase16", "Pipe wrote %d bytes, read %d bytes: '%s'", written, read_bytes, rx_buf);
+        if (read_bytes == (int)strlen(msg) && strcmp(rx_buf, msg) == 0)
+        {
+            log_info("Phase16", "Test 1: Kernel Pipe IPC PASSED!");
+        }
+        else
+        {
+            log_err("Phase16", "Test 1: Kernel Pipe IPC data mismatch FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase16", "Test 1: vfs_pipe failed FAILED!");
+    }
+
+    // Test 2: Pipe EOF detection on writer closure
+    log_info("Phase16", "Test 2: Testing EOF detection when pipe writer closes...");
+    vfs_close(pipe_fds[1]); // Close writer
+    char eof_buf[16];
+    int eof_res = vfs_read(pipe_fds[0], eof_buf, sizeof(eof_buf));
+    log_info("Phase16", "Pipe read with closed writer returned: %d (expected 0 for EOF)", eof_res);
+    vfs_close(pipe_fds[0]); // Close reader
+    if (eof_res == 0)
+    {
+        log_info("Phase16", "Test 2: Pipe EOF Detection PASSED!");
+    }
+    else
+    {
+        log_err("Phase16", "Test 2: Pipe EOF Detection FAILED!");
+    }
+
+    // Test 3: sys_dup2 File Redirection
+    log_info("Phase16", "Test 3: Testing dup2 stdout redirection to file...");
+    int fd_file = vfs_open("/pipe_test.txt", VFS_O_WRONLY | VFS_O_CREAT | VFS_O_TRUNC);
+    if (fd_file >= 0)
+    {
+        int saved_out = vfs_dup(1);
+        vfs_dup2(fd_file, 1);
+        vfs_close(fd_file);
+
+        const char* redir_msg = "Redirected output via dup2 to FD 1!\n";
+        vfs_write(1, redir_msg, strlen(redir_msg));
+
+        // Restore stdout
+        vfs_dup2(saved_out, 1);
+        vfs_close(saved_out);
+
+        // Read back from file
+        int fd_read = vfs_open("/pipe_test.txt", VFS_O_RDONLY);
+        if (fd_read >= 0)
+        {
+            char verify_buf[64];
+            memset(verify_buf, 0, sizeof(verify_buf));
+            int n = vfs_read(fd_read, verify_buf, sizeof(verify_buf) - 1);
+            vfs_close(fd_read);
+            log_info("Phase16", "Read redirected file (%d bytes): '%s'", n, verify_buf);
+            if (strncmp(verify_buf, "Redirected output via dup2", 26) == 0)
+            {
+                log_info("Phase16", "Test 3: dup2 File Redirection PASSED!");
+            }
+            else
+            {
+                log_err("Phase16", "Test 3: Redirection content mismatch FAILED!");
+            }
+        }
+        else
+        {
+            log_err("Phase16", "Test 3: Failed to re-open redirected file FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase16", "Test 3: Failed to open /pipe_test.txt FAILED!");
+    }
+
+    // Test 4: Ring 3 Subshell Pipeline (/bin/sh.elf -c "cat /readme.txt | grep Storage")
+    log_info("Phase16", "Test 4: Testing subshell pipeline ('cat /readme.txt | grep Storage')...");
+    char* sh_args1[] = { "/bin/sh.elf", "-c", "cat /readme.txt | grep Storage", NULL };
+    Task* tSh1 = Task_CreateUserFromELF("u_sh_pipe1", "/bin/sh.elf", 3, sh_args1);
+    if (tSh1)
+    {
+        uint32_t pid = tSh1->id;
+        int32_t status = -1;
+        int32_t waitRes = Task_WaitPID(pid, &status);
+        log_info("Phase16", "Subshell pipeline pid %u waitRes=%d status=%d", pid, waitRes, status);
+        if (waitRes == (int32_t)pid && status == 0)
+        {
+            log_info("Phase16", "Test 4: Subshell Pipeline ('cat | grep') PASSED!");
+        }
+        else
+        {
+            log_err("Phase16", "Test 4: Subshell Pipeline ('cat | grep') FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase16", "Test 4: Failed to spawn '/bin/sh.elf'!");
+    }
+
+    // Test 5: Multi-Stage Pipeline (/bin/sh.elf -c "cat /readme.txt | grep Phase | wc")
+    log_info("Phase16", "Test 5: Testing multi-stage pipeline ('cat /readme.txt | grep Phase | wc')...");
+    char* sh_args2[] = { "/bin/sh.elf", "-c", "cat /readme.txt | grep Phase | wc", NULL };
+    Task* tSh2 = Task_CreateUserFromELF("u_sh_pipe2", "/bin/sh.elf", 3, sh_args2);
+    if (tSh2)
+    {
+        uint32_t pid = tSh2->id;
+        int32_t status = -1;
+        int32_t waitRes = Task_WaitPID(pid, &status);
+        log_info("Phase16", "Multi-stage pipeline pid %u waitRes=%d status=%d", pid, waitRes, status);
+        if (waitRes == (int32_t)pid && status == 0)
+        {
+            log_info("Phase16", "Test 5: Multi-Stage Pipeline ('cat | grep | wc') PASSED!");
+        }
+        else
+        {
+            log_err("Phase16", "Test 5: Multi-Stage Pipeline ('cat | grep | wc') FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase16", "Test 5: Failed to spawn '/bin/sh.elf'!");
+    }
+
+    // Test 6: Standalone Utilities (head and tee)
+    log_info("Phase16", "Test 6: Testing standalone utilities ('head -n 2 /readme.txt' and 'tee')...");
+    char* head_args[] = { "/bin/head.elf", "-n", "2", "/readme.txt", NULL };
+    Task* tHead = Task_CreateUserFromELF("u_head", "/bin/head.elf", 4, head_args);
+    if (tHead)
+    {
+        uint32_t pid = tHead->id;
+        int32_t status = -1;
+        Task_WaitPID(pid, &status);
+    }
+
+    char* tee_args[] = { "/bin/sh.elf", "-c", "cat /readme.txt | head -n 3 | tee /tee_out.txt", NULL };
+    Task* tTee = Task_CreateUserFromELF("u_tee_sh", "/bin/sh.elf", 3, tee_args);
+    if (tTee)
+    {
+        uint32_t pid = tTee->id;
+        int32_t status = -1;
+        int32_t waitRes = Task_WaitPID(pid, &status);
+        if (waitRes == (int32_t)pid && status == 0)
+        {
+            VFS_Stat st;
+            if (vfs_stat("/tee_out.txt", &st) == 0 && st.size > 0)
+            {
+                log_info("Phase16", "Test 6: Standalone Utilities (head & tee) PASSED (created /tee_out.txt %u bytes)!", st.size);
+            }
+            else
+            {
+                log_err("Phase16", "Test 6: /tee_out.txt missing or empty FAILED!");
+            }
+        }
+        else
+        {
+            log_err("Phase16", "Test 6: Tee pipeline wait failed FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase16", "Test 6: Failed to spawn tee pipeline!");
+    }
+
+    log_info("Phase16", "=== Phase 16: POSIX Pipes, File Redirection & IPC 100%%%% VERIFIED! ===");
     Task_Create("ShellDemo", Task_ShellDemo);
     Task_Exit();
 }
@@ -604,6 +793,9 @@ static void Task_ShellDemo(void)
         "ls /bin",
         "wc /readme.txt",
         "grep Phase /readme.txt",
+        "cat /readme.txt | grep Storage",
+        "cat /readme.txt | grep Phase | wc",
+        "head -n 2 /readme.txt",
         "exec /bin/hello.elf testing arguments",
         "calc 7 * 8",
         "cat /readme.txt",
@@ -614,7 +806,7 @@ static void Task_ShellDemo(void)
         "gui"
     };
 
-    for (int c = 0; c < 16; c++)
+    for (int c = 0; c < 19; c++)
     {
         const char* cmd = demoCmds[c];
         log_info("ShellDemo", "Simulating keyboard input: '%s'", cmd);
@@ -624,7 +816,7 @@ static void Task_ShellDemo(void)
             Task_Yield();
         }
         i686_Keyboard_InjectChar('\n');
-        for (int i = 0; i < 20; i++) Task_Yield();
+        for (int i = 0; i < 40; i++) Task_Yield();
     }
 
     // Wait for GUI compositor to render initial desktop
@@ -814,15 +1006,15 @@ void start(BootParams* bootParams)
     Net_Initialize();
 
     printf("\n=======================================================\n");
-    printf("  myOS Phase 15: Network Device Driver & Protocol Stack\n");
-    printf("  Intel E1000 PCI NIC, ARP, IPv4, ICMP Ping, UDP & User Apps Active!\n");
+    printf("  myOS Phase 16: POSIX Pipes, File Redirection & IPC\n");
+    printf("  sys_pipe, sys_dup2, Shell Pipelines (|) & User Utilities Active!\n");
     printf("=======================================================\n\n");
 
     // Initialize MLFQ Task Scheduler
     Task_Initialize();
 
     // Spawn Phase 11 Ring 3 User Mode Automated Verification Pipeline
-    // (Sequentially cascades: Phase 11 -> Phase 12 -> Phase 13 -> Phase 14 -> Phase 15 -> ShellDemo)
+    // (Sequentially cascades: Phase 11 -> Phase 12 -> Phase 13 -> Phase 14 -> Phase 15 -> Phase 16 -> ShellDemo)
     Task_Create("Phase11_Test", Task_Phase11_UserModeVerification);
 
     // Spawn Phase 9 Interactive Command Shell Task

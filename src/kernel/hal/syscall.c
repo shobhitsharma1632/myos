@@ -409,6 +409,33 @@ void Syscall_Handler(Registers* regs)
             break;
         }
 
+        case SYS_PIPE:
+        {
+            int* pipefd = (int*)arg1;
+            if (!pipefd)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+            regs->eax = (uint32_t)vfs_pipe(pipefd);
+            break;
+        }
+
+        case SYS_DUP:
+        {
+            int oldfd = (int)arg1;
+            regs->eax = (uint32_t)vfs_dup(oldfd);
+            break;
+        }
+
+        case SYS_DUP2:
+        {
+            int oldfd = (int)arg1;
+            int newfd = (int)arg2;
+            regs->eax = (uint32_t)vfs_dup2(oldfd, newfd);
+            break;
+        }
+
         default:
         {
             log_warn(MODULE, "Unknown syscall %u called by '%s' (PID %u)",
