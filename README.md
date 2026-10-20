@@ -242,6 +242,30 @@
   - `snake.elf`: Dynamic game simulation exercising heap allocation and linked lists (`malloc`/`free`).
   - `sh.elf`: Ring 3 user subshell with built-ins (`cd`, `pwd`, `help`, `exit`) and child process batch execution (`-c`) using `sys_spawn` and `sys_waitpid`.
 
+### 11. Network Device Driver (Intel 82540EM E1000) & Protocol Stack (Phase 15)
+- **Intel 82540EM Gigabit Ethernet PCI Driver (`e1000.c`, `e1000.h`):**
+  - Scans PCI bus for vendor `0x8086` and device `0x100E`, configures Bus Master, I/O, and Memory Space (`0x07`).
+  - Maps 128 KiB BAR0 MMIO space at virtual address `0xFE000000` via `VMM_MapPage`.
+  - Reads hardware MAC address and configures `RAL0`/`RAH0` filters with Address Valid (`AV`) bit.
+  - Primed DMA rings with 32 Rx descriptors (512B) and 16 Tx descriptors (256B) on 4 KiB-aligned page frames.
+  - Allocates 32 Rx packet buffers (2048B) and 16 Tx packet buffers (2048B).
+  - Configures Receive Control (`RCTL`) and Transmit Control (`TCTL`) registers, and implements non-blocking packet polling (`E1000_Poll`).
+- **Layered Network Protocol Stack (`src/kernel/net/`):**
+  - **Layer 2 (Ethernet):** Encapsulates frames with destination/source MAC and EtherType; auto-pads frames to IEEE 802.3 minimum of 60 bytes (`ethernet.c`).
+  - **Layer 3 (ARP):** 16-entry dynamic ARP cache with round-robin eviction, auto-reply to incoming ARP requests, and blocking address resolution (`arp.c`).
+  - **Layer 3 (IPv4):** RFC 791 header formatting, 16-bit ones-complement checksum calculation, sequential packet IDs, and subnet gateway routing (`ipv4.c`).
+  - **Layer 4 (ICMP Ping):** Automatic Echo Reply generation and outgoing `ICMP_Ping` measuring round-trip time (RTT) in milliseconds (`icmp.c`).
+  - **Layer 4 (UDP):** Datagram formatting, checksum calculation, and port dispatching (`udp.c`).
+- **Network System Calls & User Runtime:**
+  - `SYS_NET_INFO` (19): queries interface name, MAC, IP, subnet, gateway, DNS, and traffic counters.
+  - `SYS_NET_PING` (20): sends ICMP echo requests and computes RTT.
+  - `SYS_NET_SEND_UDP` (21): transmits raw UDP datagrams.
+  - User-space library functions in `libuser.h`/`libuser.c`: `sys_net_info`, `sys_net_ping`, `inet_ntoa`, `inet_addr`, and upgraded `vsnprintf` with `%02x` support.
+- **Standalone Network Applications & Shell Commands:**
+  - `/bin/ifconfig.elf`: standalone Ring 3 binary displaying interface properties, IP, and statistics.
+  - `/bin/ping.elf`: standalone Ring 3 utility pinging target IP 4 times with RTT statistics.
+  - Built-in shell commands: `ifconfig` and `ping <ip>` in `shell.c`.
+
 ---
 
 ## Memory Map Layout
@@ -292,15 +316,16 @@ myos/
 │   │   ├── stage1/             # MBR boot sector (boot.asm, linker.ld)
 │   │   └── stage2/             # 32-bit loader (E820, MBR, FAT12/16/32, ELF32)
 │   ├── kernel/
-│   │   ├── arch/i686/          # x86 CPU hardware drivers (GDT, IDT, PIC, VMM assembly)
-│   │   ├── hal/                # Hardware Abstraction Layer (PMM, VMM, Heap, VFS, ELF Loader)
+│   │   ├── arch/i686/          # x86 CPU & device drivers (GDT, IDT, PIC, VMM, E1000 NIC)
+│   │   ├── hal/                # Hardware Abstraction Layer (PMM, VMM, Heap, VFS, ELF Loader, Shell, GUI)
+│   │   ├── net/                # Network Protocol Stack (Ethernet, ARP, IPv4, ICMP, UDP)
 │   │   ├── main.c              # Kernel entry point and test suite
 │   │   └── linker.ld           # elf32-i386 kernel linker script
 │   ├── user/                   # Ring 3 User-space runtime & applications
 │   │   ├── crt0.asm            # User-space C runtime startup
 │   │   ├── linker.ld           # User application linker script (0x40000000)
 │   │   ├── libuser.h/c         # Standard user library and syscall wrappers
-│   │   └── apps/               # Standalone applications (hello, calc, counter, cat, wc, grep, sh, snake)
+│   │   └── apps/               # Standalone applications (hello, calc, counter, cat, wc, grep, sh, snake, ifconfig, ping)
 │   └── libs/
 │       └── boot/
 │           └── bootparams.h    # Shared Stage 2 <-> Kernel boot data contract

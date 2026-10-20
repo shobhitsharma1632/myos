@@ -119,3 +119,22 @@ int      sys_write_file(int fd, const void* buf, size_t count);
 int      sys_lseek(int fd, int offset, int whence);
 int      sys_spawn(const char* path, int argc, char* const argv[]);
 int      sys_waitpid(int pid, int* status);
+
+// Network Subsystem API
+typedef struct {
+    uint8_t  mac[6];
+    uint32_t ip;
+    uint32_t netmask;
+    uint32_t gateway;
+    uint32_t dns;
+    uint32_t rx_packets;
+    uint32_t tx_packets;
+    uint32_t rx_bytes;
+    uint32_t tx_bytes;
+} NetInfoUser;
+
+int      sys_net_info(NetInfoUser* info);
+int      sys_net_ping(uint32_t target_ip, uint32_t timeout_ms);
+int      sys_net_send_udp(uint32_t target_ip, uint16_t src_port, uint16_t dst_port, const void* data, size_t len);
+void     inet_ntoa(uint32_t ip, char* buf);
+uint32_t inet_addr(const char* cp);

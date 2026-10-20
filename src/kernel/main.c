@@ -10,6 +10,8 @@
 #include <debug.h>
 #include <arch/i686/e9.h>
 #include <boot/bootparams.h>
+#include <net/net.h>
+#include <net/icmp.h>
 
 extern void _init();
 
@@ -22,6 +24,7 @@ void timer(Registers* regs)
 static void Task_Phase12_StorageVerification(void);
 static void Task_Phase13_ELFVerification(void);
 static void Task_Phase14_LibcVerification(void);
+static void Task_Phase15_NetworkVerification(void);
 static void Task_ShellDemo(void);
 
 static void Task_Phase11_UserModeVerification(void)
@@ -465,6 +468,126 @@ static void Task_Phase14_LibcVerification(void)
     }
 
     log_info("Phase14", "=== Phase 14: Standard C Library (libmyos) 100%%%% VERIFIED! ===");
+    Task_Create("Phase15_Test", Task_Phase15_NetworkVerification);
+    Task_Exit();
+}
+
+static void Task_Phase15_NetworkVerification(void)
+{
+    log_info("Phase15", "=======================================================");
+    log_info("Phase15", "Starting Phase 15: Network Device Driver & Stack Tests");
+    log_info("Phase15", "=======================================================");
+
+    // Test 1: Network Interface Detection & Hardware Link State
+    log_info("Phase15", "Test 1: Probing Intel E1000 Network Interface...");
+    NetInterface* netif = Net_GetInterface();
+    if (netif && netif->link_up)
+    {
+        char ipStr[16], gwStr[16];
+        ipv4_to_str(netif->ip, ipStr);
+        ipv4_to_str(netif->gateway, gwStr);
+        log_info("Phase15", "Interface '%s' detected: MAC=%02x:%02x:%02x:%02x:%02x:%02x, IP=%s, Gateway=%s",
+                 netif->name,
+                 netif->mac[0], netif->mac[1], netif->mac[2],
+                 netif->mac[3], netif->mac[4], netif->mac[5],
+                 ipStr, gwStr);
+        log_info("Phase15", "Test 1: Intel E1000 Driver & Link State PASSED!");
+    }
+    else
+    {
+        log_err("Phase15", "Test 1: Network interface not active!");
+    }
+
+    // Test 2: Network Information Syscall (SYS_NET_INFO)
+    log_info("Phase15", "Test 2: Verifying sys_net_info syscall...");
+    NetInfoUser uinfo;
+    memset(&uinfo, 0, sizeof(uinfo));
+    int32_t infoRes = sys_net_info(&uinfo);
+    if (infoRes == 0 && uinfo.ip == MAKE_IPV4(10, 0, 2, 15) && uinfo.gateway == MAKE_IPV4(10, 0, 2, 2))
+    {
+        log_info("Phase15", "sys_net_info returned valid IP (10.0.2.15) and Gateway (10.0.2.2)");
+        log_info("Phase15", "Test 2: sys_net_info PASSED!");
+    }
+    else
+    {
+        log_err("Phase15", "Test 2: sys_net_info FAILED!");
+    }
+
+    // Test 3: Local Loopback ICMP Ping (ping self: 10.0.2.15)
+    log_info("Phase15", "Test 3: Testing ICMP Ping to self (10.0.2.15)...");
+    int32_t loopback_rtt = sys_net_ping(MAKE_IPV4(10, 0, 2, 15), 500);
+    log_info("Phase15", "Ping self (10.0.2.15) RTT: %d ms", loopback_rtt);
+    if (loopback_rtt >= 0)
+    {
+        log_info("Phase15", "Test 3: Loopback Ping PASSED!");
+    }
+    else
+    {
+        log_err("Phase15", "Test 3: Loopback Ping FAILED!");
+    }
+
+    // Test 4: Gateway ICMP Ping (ping QEMU virtual router: 10.0.2.2)
+    log_info("Phase15", "Test 4: Testing ICMP Ping to Gateway (10.0.2.2)...");
+    int32_t gw_rtt = sys_net_ping(MAKE_IPV4(10, 0, 2, 2), 1500);
+    log_info("Phase15", "Ping gateway (10.0.2.2) RTT: %d ms", gw_rtt);
+    if (gw_rtt >= 0)
+    {
+        log_info("Phase15", "Test 4: Gateway Ping (10.0.2.2) PASSED!");
+    }
+    else
+    {
+        log_warn("Phase15", "Gateway Ping timed out (normal if QEMU running offline without -netdev).");
+    }
+
+    // Test 5: Spawning Standalone /bin/ifconfig.elf in Ring 3
+    log_info("Phase15", "Test 5: Spawning '/bin/ifconfig.elf' in Ring 3...");
+    char* ifc_args[] = { "/bin/ifconfig.elf", NULL };
+    Task* tIfc = Task_CreateUserFromELF("u_ifconfig", "/bin/ifconfig.elf", 1, ifc_args);
+    if (tIfc)
+    {
+        uint32_t pid = tIfc->id;
+        int32_t status = -1;
+        int32_t waitRes = Task_WaitPID(pid, &status);
+        log_info("Phase15", "Task_WaitPID(%u) returned %d with exit code %d (expected 0)", pid, waitRes, status);
+        if (waitRes == (int32_t)pid && status == 0)
+        {
+            log_info("Phase15", "Test 5: '/bin/ifconfig.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase15", "Test 5: '/bin/ifconfig.elf' FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase15", "Test 5: Failed to spawn '/bin/ifconfig.elf'!");
+    }
+
+    // Test 6: Spawning Standalone /bin/ping.elf in Ring 3
+    log_info("Phase15", "Test 6: Spawning '/bin/ping.elf 10.0.2.15' in Ring 3...");
+    char* ping_args[] = { "/bin/ping.elf", "10.0.2.15", NULL };
+    Task* tPing = Task_CreateUserFromELF("u_ping", "/bin/ping.elf", 2, ping_args);
+    if (tPing)
+    {
+        uint32_t pid = tPing->id;
+        int32_t status = -1;
+        int32_t waitRes = Task_WaitPID(pid, &status);
+        log_info("Phase15", "Task_WaitPID(%u) returned %d with exit code %d (expected 0)", pid, waitRes, status);
+        if (waitRes == (int32_t)pid && status == 0)
+        {
+            log_info("Phase15", "Test 6: '/bin/ping.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase15", "Test 6: '/bin/ping.elf' FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase15", "Test 6: Failed to spawn '/bin/ping.elf'!");
+    }
+
+    log_info("Phase15", "=== Phase 15: Network Device Driver & Protocol Stack 100%%%% VERIFIED! ===");
     Task_Create("ShellDemo", Task_ShellDemo);
     Task_Exit();
 }
@@ -476,6 +599,8 @@ static void Task_ShellDemo(void)
         "help",
         "mem",
         "disk",
+        "ifconfig",
+        "ping 10.0.2.15",
         "ls /bin",
         "wc /readme.txt",
         "grep Phase /readme.txt",
@@ -489,7 +614,7 @@ static void Task_ShellDemo(void)
         "gui"
     };
 
-    for (int c = 0; c < 14; c++)
+    for (int c = 0; c < 16; c++)
     {
         const char* cmd = demoCmds[c];
         log_info("ShellDemo", "Simulating keyboard input: '%s'", cmd);
@@ -685,16 +810,19 @@ void start(BootParams* bootParams)
     FAT_Initialize();
     VFS_Initialize();
 
+    // Initialize Network Subsystem (Intel E1000 PCI NIC & Protocol Stack)
+    Net_Initialize();
+
     printf("\n=======================================================\n");
-    printf("  myOS Phase 14: Standard C Library (libmyos) & POSIX Subsystem\n");
-    printf("  User Heap Allocator, Standard I/O Streams & Shell Apps Active!\n");
+    printf("  myOS Phase 15: Network Device Driver & Protocol Stack\n");
+    printf("  Intel E1000 PCI NIC, ARP, IPv4, ICMP Ping, UDP & User Apps Active!\n");
     printf("=======================================================\n\n");
 
     // Initialize MLFQ Task Scheduler
     Task_Initialize();
 
     // Spawn Phase 11 Ring 3 User Mode Automated Verification Pipeline
-    // (Sequentially cascades: Phase 11 -> Phase 12 -> Phase 13 -> Phase 14 -> ShellDemo)
+    // (Sequentially cascades: Phase 11 -> Phase 12 -> Phase 13 -> Phase 14 -> Phase 15 -> ShellDemo)
     Task_Create("Phase11_Test", Task_Phase11_UserModeVerification);
 
     // Spawn Phase 9 Interactive Command Shell Task

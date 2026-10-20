@@ -766,6 +766,25 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list args)
         p++; // skip '%'
         if (*p == '\0') break;
 
+        bool pad_zero = false;
+        if (*p == '0')
+        {
+            pad_zero = true;
+            p++;
+        }
+
+        int width = 0;
+        while (*p >= '0' && *p <= '9')
+        {
+            width = width * 10 + (*p - '0');
+            p++;
+        }
+
+        while (*p == 'l' || *p == 'h')
+        {
+            p++;
+        }
+
         switch (*p)
         {
             case 's':
@@ -786,6 +805,15 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list args)
             {
                 int val = va_arg(args, int);
                 itoa(val, num_buf, 10);
+                int len = (int)strlen(num_buf);
+                while (len < width)
+                {
+                    char pad = pad_zero ? '0' : ' ';
+                    if (str && written + 1 < size)
+                        str[written] = pad;
+                    written++;
+                    width--;
+                }
                 for (char* n = num_buf; *n; n++)
                 {
                     if (str && written + 1 < size)
@@ -798,6 +826,15 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list args)
             {
                 unsigned int val = va_arg(args, unsigned int);
                 itoa((int)val, num_buf, 10);
+                int len = (int)strlen(num_buf);
+                while (len < width)
+                {
+                    char pad = pad_zero ? '0' : ' ';
+                    if (str && written + 1 < size)
+                        str[written] = pad;
+                    written++;
+                    width--;
+                }
                 for (char* n = num_buf; *n; n++)
                 {
                     if (str && written + 1 < size)
@@ -811,6 +848,15 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list args)
             {
                 unsigned int val = va_arg(args, unsigned int);
                 itoa((int)val, num_buf, 16);
+                int len = (int)strlen(num_buf);
+                while (len < width)
+                {
+                    char pad = pad_zero ? '0' : ' ';
+                    if (str && written + 1 < size)
+                        str[written] = pad;
+                    written++;
+                    width--;
+                }
                 for (char* n = num_buf; *n; n++)
                 {
                     if (str && written + 1 < size)
@@ -973,4 +1019,56 @@ void qsort(void* base, size_t nmemb, size_t size, int (*compar)(const void*, con
 
     qsort(arr, i, size, compar);
     qsort(arr + ((i + 1) * size), nmemb - i - 1, size, compar);
+}
+
+// ============================================================================
+// Network Subsystem User API
+// ============================================================================
+
+int sys_net_info(NetInfoUser* info)
+{
+    return syscall1(19, (uint32_t)info);
+}
+
+int sys_net_ping(uint32_t target_ip, uint32_t timeout_ms)
+{
+    return syscall2(20, target_ip, timeout_ms);
+}
+
+int sys_net_send_udp(uint32_t target_ip, uint16_t src_port, uint16_t dst_port, const void* data, size_t len)
+{
+    (void)len;
+    return syscall3(21, target_ip, ((uint32_t)src_port << 16) | dst_port, (uint32_t)data);
+}
+
+void inet_ntoa(uint32_t ip, char* buf)
+{
+    if (!buf) return;
+    uint8_t b1 = ip & 0xFF;
+    uint8_t b2 = (ip >> 8) & 0xFF;
+    uint8_t b3 = (ip >> 16) & 0xFF;
+    uint8_t b4 = (ip >> 24) & 0xFF;
+    sprintf(buf, "%u.%u.%u.%u", b1, b2, b3, b4);
+}
+
+uint32_t inet_addr(const char* cp)
+{
+    if (!cp) return 0;
+    uint32_t parts[4] = {0, 0, 0, 0};
+    int idx = 0;
+
+    while (*cp && idx < 4)
+    {
+        if (*cp >= '0' && *cp <= '9')
+        {
+            parts[idx] = parts[idx] * 10 + (*cp - '0');
+        }
+        else if (*cp == '.')
+        {
+            idx++;
+        }
+        cp++;
+    }
+
+    return (parts[3] << 24) | (parts[2] << 16) | (parts[1] << 8) | parts[0];
 }

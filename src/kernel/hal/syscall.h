@@ -23,6 +23,21 @@
 #define SYS_SPAWN       16  // Spawn user ELF program (ebx = path, ecx = argc, edx = argv)
 #define SYS_WAITPID     17  // Wait for user process (ebx = pid, ecx = status ptr)
 #define SYS_SEEK        18  // Seek in file (ebx = fd, ecx = offset, edx = whence)
+#define SYS_NET_INFO    19  // Get network interface details (ebx = NetInfoUser ptr)
+#define SYS_NET_PING    20  // ICMP ping (ebx = target_ip, ecx = timeout_ms)
+#define SYS_NET_SEND_UDP 21 // Send UDP packet (ebx = ip, ecx = port_pair, edx = data_ptr)
+
+typedef struct {
+    uint8_t  mac[6];
+    uint32_t ip;
+    uint32_t netmask;
+    uint32_t gateway;
+    uint32_t dns;
+    uint32_t rx_packets;
+    uint32_t tx_packets;
+    uint32_t rx_bytes;
+    uint32_t tx_bytes;
+} NetInfoUser;
 
 // Kernel Syscall Gateway Interface
 void Syscall_Initialize(void);
@@ -156,4 +171,14 @@ static inline int32_t sys_waitpid(int32_t pid, int32_t* status)
 static inline int32_t sys_lseek(int fd, int32_t offset, int whence)
 {
     return syscall3(SYS_SEEK, (uint32_t)fd, (uint32_t)offset, (uint32_t)whence);
+}
+
+static inline int32_t sys_net_info(NetInfoUser* info)
+{
+    return syscall1(SYS_NET_INFO, (uint32_t)info);
+}
+
+static inline int32_t sys_net_ping(uint32_t target_ip, uint32_t timeout_ms)
+{
+    return syscall2(SYS_NET_PING, target_ip, timeout_ms);
 }

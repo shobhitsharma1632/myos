@@ -13,6 +13,8 @@
 #include <arch/i686/ata.h>
 #include <hal/fat.h>
 #include <hal/vfs.h>
+#include <net/net.h>
+#include <net/icmp.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -201,6 +203,8 @@ void Shell_Execute(char* cmdLine)
         shell_print("  spawn <name> [type] - Launch worker ('interactive' or 'compute')\n");
         shell_print("  user <subcmd>       - Ring 3 user mode commands (hello, count, test-gp, test-pf, test-all)\n");
         shell_print("  disk                - Show ATA drive and FAT filesystem status\n");
+        shell_print("  ifconfig            - Display network interface and IP configuration\n");
+        shell_print("  ping <ip>           - Send ICMP echo requests to network host\n");
         shell_print("  ls [path]           - List files and directories on disk\n");
         shell_print("  cat <file>          - Read and display file contents\n");
         shell_print("  touch <file>        - Create a new empty file\n");
@@ -389,6 +393,75 @@ void Shell_Execute(char* cmdLine)
         else
         {
             shell_print("  No ATA drive detected on Primary Master.\n\n");
+        }
+    }
+    else if (str_cmp(cmd, "ifconfig") == 0)
+    {
+        NetInterface* netif = Net_GetInterface();
+        if (!netif || !netif->link_up)
+        {
+            shell_print("ifconfig: no active network interface.\n");
+        }
+        else
+        {
+            char ipStr[16], maskStr[16], gwStr[16], dnsStr[16];
+            ipv4_to_str(netif->ip, ipStr);
+            ipv4_to_str(netif->netmask, maskStr);
+            ipv4_to_str(netif->gateway, gwStr);
+            ipv4_to_str(netif->dns, dnsStr);
+
+            shell_print("\n%s: flags=UP,BROADCAST,MULTICAST\n", netif->name);
+            shell_print("      ether %02x:%02x:%02x:%02x:%02x:%02x\n",
+                        netif->mac[0], netif->mac[1], netif->mac[2],
+                        netif->mac[3], netif->mac[4], netif->mac[5]);
+            shell_print("      inet %s  netmask %s  gateway %s\n", ipStr, maskStr, gwStr);
+            shell_print("      dns %s\n", dnsStr);
+            shell_print("      RX packets: %u  bytes: %u\n", netif->rx_packets, netif->rx_bytes);
+            shell_print("      TX packets: %u  bytes: %u\n\n", netif->tx_packets, netif->tx_bytes);
+        }
+    }
+    else if (str_cmp(cmd, "ping") == 0)
+    {
+        if (argc < 2)
+        {
+            shell_print("Usage: ping <destination_ip>\n");
+        }
+        else
+        {
+            const char* target_str = argv[1];
+            uint32_t target_ip = str_to_ipv4(target_str);
+            if (target_ip == 0)
+            {
+                shell_print("ping: invalid IPv4 address '%s'\n", target_str);
+            }
+            else
+            {
+                NetInterface* netif = Net_GetInterface();
+                shell_print("\nPING %s: 56 data bytes\n", target_str);
+                int count = 4;
+                int received = 0;
+                for (int seq = 1; seq <= count; seq++)
+                {
+                    int rtt = ICMP_Ping(netif, target_ip, 1000);
+                    if (rtt >= 0)
+                    {
+                        shell_print("64 bytes from %s: icmp_seq=%d time=%d ms\n", target_str, seq, rtt);
+                        received++;
+                    }
+                    else
+                    {
+                        shell_print("Request timeout for icmp_seq=%d\n", seq);
+                    }
+                    if (seq < count)
+                    {
+                        Task_Yield();
+                    }
+                }
+                int loss = ((count - received) * 100) / count;
+                shell_print("--- %s ping statistics ---\n", target_str);
+                shell_print("%d packets transmitted, %d received, %d%% packet loss\n\n",
+                            count, received, loss);
+            }
         }
     }
     else if (str_cmp(cmd, "ls") == 0)

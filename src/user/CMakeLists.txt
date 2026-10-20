@@ -56,6 +56,8 @@ build_user_app(wc)
 build_user_app(grep)
 build_user_app(sh)
 build_user_app(snake)
+build_user_app(ifconfig)
+build_user_app(ping)
 
 set(ALL_USER_ELFS ${ALL_USER_ELFS} PARENT_SCOPE)
 add_custom_target(user_apps ALL DEPENDS ${ALL_USER_ELFS})

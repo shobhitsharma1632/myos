@@ -724,6 +724,10 @@ Registers* Task_Schedule(Registers* currentRegs)
     g_CurrentTask->esp = (uint32_t)currentRegs;
     g_SchedulerTicks++;
 
+    // Poll network hardware for incoming packets
+    extern void Net_Poll(void);
+    Net_Poll();
+
     // Wake up any sleeping tasks whose timer expired
     Task* sleepTask = g_SleepingHead;
     Task* prevSleep = NULL;

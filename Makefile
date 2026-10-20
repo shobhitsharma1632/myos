@@ -30,7 +30,7 @@ run-gui:
 	fi
 	@if [ -n "$$DISPLAY" ] && [ "$(VNC)" != "1" ]; then \
 		echo "Launching QEMU with native graphical display window..."; \
-		qemu-system-i386 -drive file=$(BUILD_DIR)/main_floppy.img,format=raw,if=ide -debugcon stdio; \
+		qemu-system-i386 -drive file=$(BUILD_DIR)/main_floppy.img,format=raw,if=ide -netdev user,id=net0 -device e1000,netdev=net0 -debugcon stdio; \
 	else \
 		echo "================================================================="; \
 		echo "  Headless environment detected (\$$DISPLAY is not set)."; \
@@ -38,7 +38,7 @@ run-gui:
 		echo "  WebSocket VNC enabled on port 6080."; \
 		echo "  Connect your VNC client to localhost:5900 to interact with GUI!"; \
 		echo "================================================================="; \
-		qemu-system-i386 -drive file=$(BUILD_DIR)/main_floppy.img,format=raw,if=ide -vnc 0.0.0.0:0,websocket=6080 -debugcon stdio; \
+		qemu-system-i386 -drive file=$(BUILD_DIR)/main_floppy.img,format=raw,if=ide -netdev user,id=net0 -device e1000,netdev=net0 -vnc 0.0.0.0:0,websocket=6080 -debugcon stdio; \
 	fi
 
 clean:

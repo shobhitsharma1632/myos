@@ -24,6 +24,7 @@
 | **Storage & FAT Filesystem (VFS)** | ATA PIO hard disk driver (`ata.c`), kernel FAT12/FAT16 filesystem driver (`fat.c`), POSIX-style VFS layer (`vfs.c`, `vfs.h`), VFS syscalls (`SYS_OPEN`, `SYS_CLOSE`, `SYS_READ_FILE`, etc.), disk shell commands (`ls`, `cat`, `touch`, `write`), and desktop File Explorer GUI window | None | 🟢 Surpassed nanobyte_os | Complete |
 | **Dynamic ELF32 Binary Loader** | Kernel ELF32 loader (`elf_loader.c`), isolated per-process Page Directories (`0x40000000+`), System V i386 ABI initial user stack (`argc`/`argv`), process lifecycle (`Task_WaitPID`), dynamic process spawning (`sys_spawn`/`sys_waitpid`) | None | 🟢 Surpassed nanobyte_os | Complete |
 | **Standard C Library (`libmyos`) & POSIX** | User-space dynamic heap allocator (`malloc`, `free`, `realloc`, `calloc`), standard stream abstraction (`FILE*`, `stdin`, `stdout`, `stderr`, `fopen`, `fclose`, `fread`, `fwrite`, `fseek`, `ftell`, `fgetc`, `fgets`, `fputs`, `fprintf`), POSIX string utilities (`strtok`, `strdup`, `qsort`, `rand`), user applications (`wc.elf`, `grep.elf`, `sh.elf`, `snake.elf`) | None | 🟢 Surpassed nanobyte_os | Complete |
+| **Network Subsystem & Intel E1000 Driver** | Intel 82540EM Gigabit Ethernet PCI driver (`e1000.c`, `e1000.h`) with BAR0 MMIO, 32 Rx & 16 Tx DMA rings; lightweight network protocol stack: Ethernet framing, ARP with dynamic cache & auto-reply, IPv4 routing & checksums, ICMP echo request/reply (ping), and UDP (`net/`); syscalls `SYS_NET_INFO`, `SYS_NET_PING`, `SYS_NET_SEND_UDP`; user library network APIs; standalone Ring 3 apps `ifconfig.elf` and `ping.elf`; interactive shell commands `ifconfig` and `ping` | None | 🟢 Surpassed nanobyte_os | Complete |
 | **Kernel Interrupts & PIC** | Modular `PICDriver` interface (`i8259.c`), auto-unmasking, ISR bound | Modular `PICDriver` interface, `i8259` driver with probe, proper ISR routing | 🟢 Parity Achieved | Ready for APIC in future |
 | **HAL & Drivers** | Clean `vga_text.c`, port 0xE9 (`e9.c`), `vfs.c` router, structured `debug.c`, `pmm.c`, `vmm.c`, `heap.c` | Separated `vga_text.c`, port 0xE9 debug (`e9.c`), minimal `vfs.c`, structured logger (`debug.c`) | 🟢 Parity Achieved | Complete |
 | **Shared Libs (`libs/`)** | `src/libs/boot/bootparams.h` shared across Stage 2 & Kernel | `src/libs/boot/bootparams.h`, `src/libs/core/` (C++ device abstractions) | 🟡 BootParams Parity | Add C++ core library (optional) |
@@ -263,6 +264,42 @@ graph TD
 - [x] **Step 14.6:** Upgrade Kernel Task Stack to 8 KiB (`TASK_STACK_SIZE 8192`) and dynamically allocate ELF loader metadata to prevent stack overflow on deep VFS/ATA call chains.
 - [x] **Step 14.7:** Automate compilation of all 8 user applications into floppy disk image under `::bin/` and verify complete test suite in QEMU.
 
+### Phase 15: Network Device Driver (Intel 82540EM E1000) & Protocol Stack (Ethernet, ARP, IPv4, ICMP, UDP)
+- [x] **Step 15.1:** Implement Intel 82540EM (e1000) Gigabit Ethernet PCI driver (`e1000.h`, `e1000.c`):
+  - Scan PCI for vendor `0x8086` and device `0x100E`, configure PCI Bus Master, I/O, and Memory Space (`0x07`).
+  - Map 128 KiB BAR0 MMIO space at virtual address `0xFE000000` via `VMM_MapPage`.
+  - Read MAC address from RAL0/RAH0 or EEPROM (`EERD`), configure RAL0/RAH0 with Address Valid (`AV`) bit.
+  - Allocate 32 Rx descriptors (512B) and 16 Tx descriptors (256B) on 4 KiB aligned physical frame.
+  - Allocate 32 physical 2048-byte Rx buffers and 16 physical 2048-byte Tx buffers.
+  - Configure Receive Control Register (`RCTL`) and Transmit Control Register (`TCTL`), register IRQ handler, and implement packet transmission (`E1000_SendPacket`) and reception polling (`E1000_Poll`).
+- [x] **Step 15.2:** Implement Layer 2 Ethernet Subsystem (`ethernet.h`, `ethernet.c`):
+  - Encapsulate outgoing packets with 14-byte Ethernet header (Destination MAC, Source MAC, EtherType).
+  - Pad short Ethernet frames to IEEE 802.3 minimum of 60 bytes.
+  - Dispatch incoming frames to ARP (`0x0806`) or IPv4 (`0x0800`).
+- [x] **Step 15.3:** Implement Layer 3 ARP Protocol (`arp.h`, `arp.c`):
+  - Maintain 16-entry dynamic ARP cache (`ip` to `mac` resolution) with round-robin replacement.
+  - Automatically reply to ARP requests querying kernel's IP address.
+  - Support blocking ARP resolution (`ARP_Resolve`) with request retries and cooperative scheduler yields.
+- [x] **Step 15.4:** Implement Layer 3 IPv4 Protocol & Routing (`ipv4.h`, `ipv4.c`):
+  - Format 20-byte IPv4 headers, calculate standard RFC 791 ones-complement checksums, and assign sequential packet IDs.
+  - Route traffic to target host if on local subnet (`255.255.255.0`), or route via default gateway (`10.0.2.2`).
+  - Validate received IPv4 checksums, version, destination IP, and dispatch payload to ICMP (`0x01`) or UDP (`0x11`).
+- [x] **Step 15.5:** Implement Layer 4 ICMP (Ping) & UDP Protocols (`icmp.h`, `icmp.c`, `udp.h`, `udp.c`):
+  - Automatically respond to incoming ICMP Echo Requests (`type 8`) with Echo Replies (`type 0`).
+  - Implement kernel `ICMP_Ping` API supporting local loopback and remote host ping with round-trip time (RTT) tracking.
+  - Implement UDP header formatting, checksum generation, and port binding table.
+- [x] **Step 15.6:** Extend System Call Interface & User Runtime (`syscall.h`, `syscall.c`, `libuser.h`, `libuser.c`):
+  - Add `SYS_NET_INFO` (19): returns MAC, IP, subnet mask, gateway, DNS, and RX/TX packet & byte counters.
+  - Add `SYS_NET_PING` (20): sends ICMP echo request and measures RTT in milliseconds.
+  - Add `SYS_NET_SEND_UDP` (21): transmits raw UDP datagrams.
+  - Add user-space wrappers: `sys_net_info`, `sys_net_ping`, `inet_ntoa`, `inet_addr`, and upgrade `vsnprintf` with `%02x` width and zero-padding.
+- [x] **Step 15.7:** Implement Standalone Network User Applications & Shell Commands:
+  - `src/user/apps/ifconfig.c` -> `/bin/ifconfig.elf`: displays network interface state, MAC, IP, subnet, gateway, DNS, and traffic stats.
+  - `src/user/apps/ping.c` -> `/bin/ping.elf`: CLI ping utility sending 4 ICMP echo requests and reporting RTT statistics.
+  - Add interactive shell built-ins `ifconfig` and `ping <ip>` in `src/kernel/hal/shell.c`.
+  - Update `CMakeLists.txt` and `Makefile` with QEMU networking flags (`-netdev user,id=net0 -device e1000,netdev=net0`).
+- [x] **Step 15.8:** Integrate automated verification suite in `main.c` testing E1000 link state, `sys_net_info`, loopback ICMP ping, `/bin/ifconfig.elf`, and `/bin/ping.elf` in Ring 3 user mode.
+
 ---
 
 ## 4. Change History & Progress Log
@@ -285,6 +322,8 @@ graph TD
 | **2026-10-19** | **Phase 12 Complete** | Implemented Storage Device Subsystem (IDE / ATA PIO Driver), Kernel FAT Filesystem Driver, Virtual File System (VFS) Layer, VFS Syscalls, Shell Commands, and Desktop File Explorer. Created `ata.c`/`ata.h` (Primary ATA channel ports `0x1F0`–`0x1F7`, `0x3F6`, 28-bit LBA read/write/flush); `fat.c`/`fat.h` (BPB parsing, FAT12/FAT16 detection, sector caching, cluster allocation and linking, path resolution, root directory enumeration, file creation, truncation, resizing); `vfs.c`/`vfs.h` (POSIX file descriptors 0..19, `vfs_open`, `vfs_read`, `vfs_write`, `vfs_close`, `vfs_readdir`, `vfs_stat`, `vfs_touch`); extended `syscall.c` with `SYS_OPEN` (10), `SYS_CLOSE` (11), `SYS_READ_FILE` (12), `SYS_WRITE_FILE` (13), `SYS_READDIR` (14), `SYS_STAT` (15); added shell commands `disk`, `ls`, `cat`, `touch`, `write`; added Desktop File Explorer window in `gui.c`; fixed Stage 2 protected mode segment descriptor caches (`es`, `fs`, `gs`) and 32-bit `memcpy`/`memset`/`memcmp` size parameter types. | **Verified in QEMU:** Primary Master drive detected (`QEMU HARDDISK`, 2880 sectors); FAT12 mounted at `/`; enumerated root directory (`BOOT/`, `README.TXT`, `HELLO.TXT`); read 228 bytes from `/readme.txt`; created and wrote 79 bytes to `/test12.txt`; read back `/test12.txt` with exact byte verification (PASSED); verified user-space `int 0x80` VFS syscalls (`sys_open`, `sys_read_file`, `sys_close` on `/hello.txt`); verified shell commands `disk`, `ls`, `cat /readme.txt`, `touch /notes.txt`, `write /notes.txt ...`, `cat /notes.txt`; GUI File Explorer active and responsive in 1024x768 compositor. |
 | **2026-10-20** | **Phase 13 Complete** | Implemented dynamic ELF32 User Executable Loader, isolated per-process Page Directories (`0x40000000+`), System V i386 ABI initial user stack frame (`argc`/`argv`), process lifecycle management (`Task_WaitPID`, `waitable`/`reapable` zombie protection, `sys_spawn`, `sys_waitpid`), user runtime library (`crt0.asm`, `libuser.c`/`libuser.h`), standalone user programs (`hello.elf`, `calc.elf`, `counter.elf`, `cat.elf`), interactive shell dynamic binary execution (`exec <bin> [args...]` and path fallback). | **Verified in QEMU:** All 5 automated tests passed 100%: Test 1 (`hello.elf` args & PID, exit 0), Test 2 (`calc.elf 25 * 4 = 100`, exit 100), Test 3 (`counter.elf` sleep cycles, exit 42), Test 4 (`cat.elf /readme.txt` 228 bytes read, exit 0), Test 5 (`sys_spawn`/`sys_waitpid 12 + 33 = 45`, exit 45); verified interactive shell `exec /bin/hello.elf testing arguments` and `calc 7 * 8` returning exit code 56; verified zero page directory/frame leaks via deferred reaper. |
 | **2026-10-20** | **Phase 14 Complete** | Implemented Standard C Library (`libmyos`), POSIX subsystem expansion, and standalone user applications (`wc.elf`, `grep.elf`, `sh.elf`, `snake.elf`). Implemented boundary-tag user heap allocator (`malloc`, `free`, `realloc`, `calloc`) backed by `SYS_SBRK`; standard stream I/O (`FILE*`, `stdin`, `stdout`, `stderr`, `fopen`, `fclose`, `fread`, `fwrite`, `fseek`, `ftell`, `fgetc`, `fgets`, `fprintf`, `sprintf`); POSIX string/memory utilities (`strtok`, `strdup`, `qsort`, `rand`); kernel `SYS_SEEK` (18) and heap page tracking; upgraded kernel task stacks to 8 KiB (`TASK_STACK_SIZE 8192`) and eliminated ELF loading stack footprint; verified interactive shell subshell execution. | **Verified in QEMU:** All 5 automated tests passed 100%: Test 1 (`wc.elf /readme.txt` -> lines=4, words=38, bytes=228, exit 0), Test 2 (`grep.elf Phase /readme.txt` -> matched line 2, exit 0), Test 3 (`snake.elf` dynamic heap linked list -> score 10, clean free, exit 10), Test 4 (`sh.elf -c "/bin/calc.elf 15 * 5"` -> spawned child process, evaluated 75, exit 0), Test 5 (`sys_lseek` on `/readme.txt` -> `SEEK_SET(10)=10, SEEK_CUR(+5)=15, SEEK_END(0)=228`). Interactive ShellDemo verified `wc`, `grep`, `cat`, `touch`, `write`, `calc`, `exec`, and GUI compositor. |
+| **2026-10-20** | **Phase 15 Complete** | Implemented Intel 82540EM (e1000) PCI Network Interface Card Driver, lightweight Network Protocol Stack (Ethernet, ARP with dynamic cache & auto-reply, IPv4 with routing, ICMP Echo Request / Reply, UDP), Network System Calls (`SYS_NET_INFO`, `SYS_NET_PING`, `SYS_NET_SEND_UDP`), User Network Runtime (`sys_net_info`, `sys_net_ping`, `inet_ntoa`, `inet_addr`), and Standalone User Applications (`ifconfig.elf`, `ping.elf`). Added interactive shell commands `ifconfig` and `ping <ip>` in `shell.c`. Upgraded `vsnprintf` in kernel and user runtime with `%02x` width and zero-padding. | **Verified in QEMU:** All Phase 15 automated and shell tests passed 100%: Test 1 (Intel E1000 PCI probe `0x8086:0x100E`, BAR0 MMIO mapped at `0xFE000000`, MAC `52:54:00:12:34:56`), Test 2 (`sys_net_info` returning IP `10.0.2.15`, Gateway `10.0.2.2`), Test 3 (ICMP loopback ping 1ms RTT), Test 4 (Gateway routing & ARP resolution with cooperative scheduler polling), Test 5 (`/bin/ifconfig.elf` in Ring 3 displaying formatted MAC, IP, netmask, gateway, DNS, and traffic counters), Test 6 (`/bin/ping.elf 10.0.2.15` in Ring 3 sending 4 ICMP packets with 0% loss); interactive shell commands `ifconfig`, `ping 10.0.2.15`, `ls /bin` (12 entries: 10 ELF binaries) verified. |
+
 
 
 

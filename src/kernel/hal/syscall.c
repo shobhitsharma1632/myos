@@ -6,6 +6,9 @@
 #include <hal/vmm.h>
 #include <hal/pmm.h>
 #include <hal/vfs.h>
+#include <net/net.h>
+#include <net/icmp.h>
+#include <net/udp.h>
 #include <stdio.h>
 #include <string.h>
 #include <memory.h>
@@ -343,6 +346,66 @@ void Syscall_Handler(Registers* regs)
             int32_t offset = (int32_t)arg2;
             int whence = (int)arg3;
             regs->eax = (uint32_t)vfs_lseek(fd, offset, whence);
+            break;
+        }
+
+        case SYS_NET_INFO:
+        {
+            NetInfoUser* user_info = (NetInfoUser*)arg1;
+            if (!user_info)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+            NetInterface* netif = Net_GetInterface();
+            if (!netif)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+            memcpy(user_info->mac, netif->mac, 6);
+            user_info->ip          = netif->ip;
+            user_info->netmask     = netif->netmask;
+            user_info->gateway     = netif->gateway;
+            user_info->dns         = netif->dns;
+            user_info->rx_packets  = netif->rx_packets;
+            user_info->tx_packets  = netif->tx_packets;
+            user_info->rx_bytes    = netif->rx_bytes;
+            user_info->tx_bytes    = netif->tx_bytes;
+            regs->eax = 0;
+            break;
+        }
+
+        case SYS_NET_PING:
+        {
+            uint32_t target_ip = (uint32_t)arg1;
+            uint32_t timeout_ms = (uint32_t)arg2;
+            NetInterface* netif = Net_GetInterface();
+            if (!netif)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+            int32_t rtt = ICMP_Ping(netif, target_ip, timeout_ms);
+            regs->eax = (uint32_t)rtt;
+            break;
+        }
+
+        case SYS_NET_SEND_UDP:
+        {
+            uint32_t target_ip = (uint32_t)arg1;
+            uint16_t src_port = (uint16_t)(arg2 >> 16);
+            uint16_t dst_port = (uint16_t)(arg2 & 0xFFFF);
+            const void* data = (const void*)arg3;
+            size_t len = (size_t)regs->esi;
+            NetInterface* netif = Net_GetInterface();
+            if (!netif || !data)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+            bool ok = UDP_Send(netif, target_ip, src_port, dst_port, data, len);
+            regs->eax = ok ? 0 : (uint32_t)-1;
             break;
         }
 

@@ -34,7 +34,7 @@ void fputs(const char* str, fd_t file)
 
 const char g_HexChars[] = "0123456789abcdef";
 
-void fprintf_unsigned(fd_t file, unsigned long long number, int radix)
+void fprintf_unsigned(fd_t file, unsigned long long number, int radix, int width, bool pad_zero)
 {
     char buffer[32];
     int pos = 0;
@@ -47,19 +47,25 @@ void fprintf_unsigned(fd_t file, unsigned long long number, int radix)
         buffer[pos++] = g_HexChars[rem];
     } while (number > 0);
 
+    while (pos < width && pos < 31)
+    {
+        buffer[pos++] = pad_zero ? '0' : ' ';
+    }
+
     // print number in reverse order
     while (--pos >= 0)
         fputc(buffer[pos], file);
 }
 
-void fprintf_signed(fd_t file, long long number, int radix)
+void fprintf_signed(fd_t file, long long number, int radix, int width, bool pad_zero)
 {
     if (number < 0)
     {
         fputc('-', file);
-        fprintf_unsigned(file, -number, radix);
+        if (width > 0) width--;
+        fprintf_unsigned(file, -number, radix, width, pad_zero);
     }
-    else fprintf_unsigned(file, number, radix);
+    else fprintf_unsigned(file, number, radix, width, pad_zero);
 }
 
 void vfprintf(fd_t file, const char* fmt, va_list args)
@@ -69,6 +75,8 @@ void vfprintf(fd_t file, const char* fmt, va_list args)
     int radix = 10;
     bool sign = false;
     bool number = false;
+    int width = 0;
+    bool pad_zero = false;
 
     while (*fmt)
     {
@@ -78,6 +86,8 @@ void vfprintf(fd_t file, const char* fmt, va_list args)
                 switch (*fmt)
                 {
                     case '%':   state = PRINTF_STATE_LENGTH;
+                                width = 0;
+                                pad_zero = false;
                                 break;
                     default:    fputc(*fmt, file);
                                 break;
@@ -85,6 +95,16 @@ void vfprintf(fd_t file, const char* fmt, va_list args)
                 break;
 
             case PRINTF_STATE_LENGTH:
+                if (*fmt == '0' && width == 0)
+                {
+                    pad_zero = true;
+                    break;
+                }
+                else if (*fmt >= '0' && *fmt <= '9')
+                {
+                    width = width * 10 + (*fmt - '0');
+                    break;
+                }
                 switch (*fmt)
                 {
                     case 'h':   length = PRINTF_LENGTH_SHORT;
@@ -156,13 +176,13 @@ void vfprintf(fd_t file, const char* fmt, va_list args)
                         {
                         case PRINTF_LENGTH_SHORT_SHORT:
                         case PRINTF_LENGTH_SHORT:
-                        case PRINTF_LENGTH_DEFAULT:     fprintf_signed(file, va_arg(args, int), radix);
+                        case PRINTF_LENGTH_DEFAULT:     fprintf_signed(file, va_arg(args, int), radix, width, pad_zero);
                                                         break;
 
-                        case PRINTF_LENGTH_LONG:        fprintf_signed(file, va_arg(args, long), radix);
+                        case PRINTF_LENGTH_LONG:        fprintf_signed(file, va_arg(args, long), radix, width, pad_zero);
                                                         break;
 
-                        case PRINTF_LENGTH_LONG_LONG:   fprintf_signed(file, va_arg(args, long long), radix);
+                        case PRINTF_LENGTH_LONG_LONG:   fprintf_signed(file, va_arg(args, long long), radix, width, pad_zero);
                                                         break;
                         }
                     }
@@ -172,13 +192,13 @@ void vfprintf(fd_t file, const char* fmt, va_list args)
                         {
                         case PRINTF_LENGTH_SHORT_SHORT:
                         case PRINTF_LENGTH_SHORT:
-                        case PRINTF_LENGTH_DEFAULT:     fprintf_unsigned(file, va_arg(args, unsigned int), radix);
+                        case PRINTF_LENGTH_DEFAULT:     fprintf_unsigned(file, va_arg(args, unsigned int), radix, width, pad_zero);
                                                         break;
                                                         
-                        case PRINTF_LENGTH_LONG:        fprintf_unsigned(file, va_arg(args, unsigned long), radix);
+                        case PRINTF_LENGTH_LONG:        fprintf_unsigned(file, va_arg(args, unsigned long), radix, width, pad_zero);
                                                         break;
 
-                        case PRINTF_LENGTH_LONG_LONG:   fprintf_unsigned(file, va_arg(args, unsigned long long), radix);
+                        case PRINTF_LENGTH_LONG_LONG:   fprintf_unsigned(file, va_arg(args, unsigned long long), radix, width, pad_zero);
                                                         break;
                         }
                     }
@@ -190,6 +210,8 @@ void vfprintf(fd_t file, const char* fmt, va_list args)
                 radix = 10;
                 sign = false;
                 number = false;
+                width = 0;
+                pad_zero = false;
                 break;
         }
 
@@ -292,7 +314,7 @@ static void snprintf_puts(const char* s, SnprintfContext* ctx)
     }
 }
 
-static void snprintf_unsigned(unsigned long long number, int radix, SnprintfContext* ctx)
+static void snprintf_unsigned(unsigned long long number, int radix, int width, bool pad_zero, SnprintfContext* ctx)
 {
     char buf[32];
     int pos = 0;
@@ -302,20 +324,26 @@ static void snprintf_unsigned(unsigned long long number, int radix, SnprintfCont
         buf[pos++] = g_HexChars[rem];
     } while (number > 0);
 
+    while (pos < width && pos < 31)
+    {
+        buf[pos++] = pad_zero ? '0' : ' ';
+    }
+
     while (--pos >= 0)
         snprintf_putc(buf[pos], ctx);
 }
 
-static void snprintf_signed(long long number, int radix, SnprintfContext* ctx)
+static void snprintf_signed(long long number, int radix, int width, bool pad_zero, SnprintfContext* ctx)
 {
     if (number < 0)
     {
         snprintf_putc('-', ctx);
-        snprintf_unsigned(-number, radix, ctx);
+        if (width > 0) width--;
+        snprintf_unsigned(-number, radix, width, pad_zero, ctx);
     }
     else
     {
-        snprintf_unsigned(number, radix, ctx);
+        snprintf_unsigned(number, radix, width, pad_zero, ctx);
     }
 }
 
@@ -327,6 +355,8 @@ int vsnprintf(char* buffer, size_t size, const char* fmt, va_list args)
     int radix = 10;
     bool sign = false;
     bool number = false;
+    int width = 0;
+    bool pad_zero = false;
 
     while (*fmt)
     {
@@ -335,12 +365,22 @@ int vsnprintf(char* buffer, size_t size, const char* fmt, va_list args)
             case PRINTF_STATE_NORMAL:
                 switch (*fmt)
                 {
-                    case '%': state = PRINTF_STATE_LENGTH; break;
+                    case '%': state = PRINTF_STATE_LENGTH; width = 0; pad_zero = false; break;
                     default:  snprintf_putc(*fmt, &ctx); break;
                 }
                 break;
 
             case PRINTF_STATE_LENGTH:
+                if (*fmt == '0' && width == 0)
+                {
+                    pad_zero = true;
+                    break;
+                }
+                else if (*fmt >= '0' && *fmt <= '9')
+                {
+                    width = width * 10 + (*fmt - '0');
+                    break;
+                }
                 switch (*fmt)
                 {
                     case 'h': length = PRINTF_LENGTH_SHORT; state = PRINTF_STATE_LENGTH_SHORT; break;
@@ -393,13 +433,13 @@ int vsnprintf(char* buffer, size_t size, const char* fmt, va_list args)
                             case PRINTF_LENGTH_SHORT_SHORT:
                             case PRINTF_LENGTH_SHORT:
                             case PRINTF_LENGTH_DEFAULT:
-                                snprintf_signed(va_arg(args, int), radix, &ctx);
+                                snprintf_signed(va_arg(args, int), radix, width, pad_zero, &ctx);
                                 break;
                             case PRINTF_LENGTH_LONG:
-                                snprintf_signed(va_arg(args, long), radix, &ctx);
+                                snprintf_signed(va_arg(args, long), radix, width, pad_zero, &ctx);
                                 break;
                             case PRINTF_LENGTH_LONG_LONG:
-                                snprintf_signed(va_arg(args, long long), radix, &ctx);
+                                snprintf_signed(va_arg(args, long long), radix, width, pad_zero, &ctx);
                                 break;
                         }
                     }
@@ -410,13 +450,13 @@ int vsnprintf(char* buffer, size_t size, const char* fmt, va_list args)
                             case PRINTF_LENGTH_SHORT_SHORT:
                             case PRINTF_LENGTH_SHORT:
                             case PRINTF_LENGTH_DEFAULT:
-                                snprintf_unsigned(va_arg(args, unsigned int), radix, &ctx);
+                                snprintf_unsigned(va_arg(args, unsigned int), radix, width, pad_zero, &ctx);
                                 break;
                             case PRINTF_LENGTH_LONG:
-                                snprintf_unsigned(va_arg(args, unsigned long), radix, &ctx);
+                                snprintf_unsigned(va_arg(args, unsigned long), radix, width, pad_zero, &ctx);
                                 break;
                             case PRINTF_LENGTH_LONG_LONG:
-                                snprintf_unsigned(va_arg(args, unsigned long long), radix, &ctx);
+                                snprintf_unsigned(va_arg(args, unsigned long long), radix, width, pad_zero, &ctx);
                                 break;
                         }
                     }
@@ -427,6 +467,8 @@ int vsnprintf(char* buffer, size_t size, const char* fmt, va_list args)
                 radix = 10;
                 sign = false;
                 number = false;
+                width = 0;
+                pad_zero = false;
                 break;
         }
         fmt++;
