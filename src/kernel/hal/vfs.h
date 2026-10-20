@@ -17,6 +17,10 @@ typedef int fd_t;
 #define VFS_O_TRUNC     0x0200
 #define VFS_O_APPEND    0x0400
 
+#define VFS_SEEK_SET    0
+#define VFS_SEEK_CUR    1
+#define VFS_SEEK_END    2
+
 typedef struct {
     char        name[64];
     uint32_t    size;
@@ -36,6 +40,7 @@ void VFS_Initialize(void);
 fd_t vfs_open(const char* path, int flags);
 int  vfs_read(fd_t fd, void* buf, size_t count);
 int  vfs_write(fd_t fd, const void* buf, size_t count);
+int  vfs_lseek(fd_t fd, int32_t offset, int whence);
 int  vfs_close(fd_t fd);
 int  vfs_readdir(const char* path, size_t index, VFS_DirEntry* entry);
 int  vfs_stat(const char* path, VFS_Stat* st);

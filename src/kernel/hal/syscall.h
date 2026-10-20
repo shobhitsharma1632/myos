@@ -20,6 +20,8 @@
 #define SYS_WRITE_FILE  13  // Write file (ebx = fd, ecx = buf, edx = count)
 #define SYS_READDIR     14  // Read directory (ebx = path, ecx = index, edx = entry ptr)
 #define SYS_STAT        15  // File stat (ebx = path, ecx = stat ptr)
+#define SYS_SPAWN       16  // Spawn user ELF program (ebx = path, ecx = argc, edx = argv)
+#define SYS_WAITPID     17  // Wait for user process (ebx = pid, ecx = status ptr)
 
 // Kernel Syscall Gateway Interface
 void Syscall_Initialize(void);
@@ -138,4 +140,14 @@ static inline int32_t sys_readdir(const char* path, size_t index, void* entry)
 static inline int32_t sys_stat(const char* path, void* st)
 {
     return syscall2(SYS_STAT, (uint32_t)path, (uint32_t)st);
+}
+
+static inline int32_t sys_spawn(const char* path, int argc, char* const argv[])
+{
+    return syscall3(SYS_SPAWN, (uint32_t)path, (uint32_t)argc, (uint32_t)argv);
+}
+
+static inline int32_t sys_waitpid(int32_t pid, int32_t* status)
+{
+    return syscall2(SYS_WAITPID, (uint32_t)pid, (uint32_t)status);
 }

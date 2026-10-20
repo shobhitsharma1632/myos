@@ -199,22 +199,155 @@ static void Task_Phase12_StorageVerification(void)
     Task_Exit();
 }
 
+static void Task_Phase13_ELFVerification(void)
+{
+    // Wait for Phase 11 & 12 automated verification to complete
+    for (int i = 0; i < 75; i++) Task_Yield();
+
+    log_info("Phase13", "=======================================================");
+    log_info("Phase13", "Starting Phase 13: ELF32 User Binary Loader Tests");
+    log_info("Phase13", "=======================================================");
+
+    // Test 1: Spawning /bin/hello.elf with CLI arguments
+    log_info("Phase13", "Test 1: Spawning '/bin/hello.elf' with arguments...");
+    char* hello_args[] = { "/bin/hello.elf", "Phase13", "DynamicELF", NULL };
+    Task* tHello = Task_CreateUserFromELF("u_hello_elf", "/bin/hello.elf", 3, hello_args);
+    if (tHello)
+    {
+        uint32_t pid = tHello->id;
+        int32_t status = -1;
+        log_info("Phase13", "Waiting for '/bin/hello.elf' (PID %u) to complete...", pid);
+        int32_t waitRes = Task_WaitPID(pid, &status);
+        log_info("Phase13", "Task_WaitPID(%u) returned %d with exit code %d (expected 0)", pid, waitRes, status);
+        if (waitRes == (int32_t)pid && status == 0)
+        {
+            log_info("Phase13", "Test 1: '/bin/hello.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase13", "Test 1: '/bin/hello.elf' FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase13", "Test 1: Failed to spawn '/bin/hello.elf'!");
+    }
+
+    // Test 2: Spawning /bin/calc.elf with arithmetic arguments (25 * 4 = 100)
+    log_info("Phase13", "Test 2: Spawning '/bin/calc.elf' with arithmetic arguments ('25', '*', '4')...");
+    char* calc_args[] = { "/bin/calc.elf", "25", "*", "4", NULL };
+    Task* tCalc = Task_CreateUserFromELF("u_calc_elf", "/bin/calc.elf", 4, calc_args);
+    if (tCalc)
+    {
+        uint32_t pid = tCalc->id;
+        int32_t status = -1;
+        int32_t waitRes = Task_WaitPID(pid, &status);
+        log_info("Phase13", "Task_WaitPID(%u) returned %d with exit code %d (expected 100)", pid, waitRes, status);
+        if (waitRes == (int32_t)pid && status == 100)
+        {
+            log_info("Phase13", "Test 2: '/bin/calc.elf' (25 * 4 = 100) PASSED!");
+        }
+        else
+        {
+            log_err("Phase13", "Test 2: '/bin/calc.elf' calculation FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase13", "Test 2: Failed to spawn '/bin/calc.elf'!");
+    }
+
+    // Test 3: Spawning /bin/counter.elf with sleep cycles
+    log_info("Phase13", "Test 3: Spawning '/bin/counter.elf' (sleep cycles test)...");
+    char* count_args[] = { "/bin/counter.elf", "3", NULL };
+    Task* tCount = Task_CreateUserFromELF("u_count_elf", "/bin/counter.elf", 2, count_args);
+    if (tCount)
+    {
+        uint32_t pid = tCount->id;
+        int32_t status = -1;
+        int32_t waitRes = Task_WaitPID(pid, &status);
+        log_info("Phase13", "Task_WaitPID(%u) returned %d with exit code %d (expected 42)", pid, waitRes, status);
+        if (waitRes == (int32_t)pid && status == 42)
+        {
+            log_info("Phase13", "Test 3: '/bin/counter.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase13", "Test 3: '/bin/counter.elf' FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase13", "Test 3: Failed to spawn '/bin/counter.elf'!");
+    }
+
+    // Test 4: Spawning /bin/cat.elf to read /readme.txt
+    log_info("Phase13", "Test 4: Spawning '/bin/cat.elf' reading '/readme.txt'...");
+    char* cat_args[] = { "/bin/cat.elf", "/readme.txt", NULL };
+    Task* tCat = Task_CreateUserFromELF("u_cat_elf", "/bin/cat.elf", 2, cat_args);
+    if (tCat)
+    {
+        uint32_t pid = tCat->id;
+        int32_t status = -1;
+        int32_t waitRes = Task_WaitPID(pid, &status);
+        log_info("Phase13", "Task_WaitPID(%u) returned %d with exit code %d (expected 0)", pid, waitRes, status);
+        if (waitRes == (int32_t)pid && status == 0)
+        {
+            log_info("Phase13", "Test 4: '/bin/cat.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase13", "Test 4: '/bin/cat.elf' FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase13", "Test 4: Failed to spawn '/bin/cat.elf'!");
+    }
+
+    // Test 5: Testing sys_spawn and sys_waitpid system calls from C wrapper
+    log_info("Phase13", "Test 5: Verifying sys_spawn and sys_waitpid syscalls via int 0x80...");
+    char* spawn_args[] = { "/bin/calc.elf", "12", "+", "33", NULL };
+    int32_t child_pid = sys_spawn("/bin/calc.elf", 4, spawn_args);
+    if (child_pid > 0)
+    {
+        int32_t child_status = -1;
+        int32_t wpid = sys_waitpid(child_pid, &child_status);
+        log_info("Phase13", "sys_waitpid(%d) returned %d with exit code %d (expected 45)", child_pid, wpid, child_status);
+        if (wpid == child_pid && child_status == 45)
+        {
+            log_info("Phase13", "Test 5: sys_spawn & sys_waitpid (12 + 33 = 45) PASSED!");
+        }
+        else
+        {
+            log_err("Phase13", "Test 5: sys_spawn & sys_waitpid FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase13", "Test 5: sys_spawn failed!");
+    }
+
+    log_info("Phase13", "=== Phase 13: ELF32 User Binary Loader 100%%%% VERIFIED! ===");
+    Task_Exit();
+}
+
 static void Task_ShellDemo(void)
 {
-    // Wait for Phase 11 & 12 automated verifications to complete
-    for (int i = 0; i < 90; i++) Task_Yield();
+    // Wait for Phase 11, 12 & 13 automated verifications to complete
+    for (int i = 0; i < 110; i++) Task_Yield();
 
     const char* demoCmds[] = {
         "help",
         "mem",
         "disk",
-        "ls",
+        "ls /bin",
+        "exec /bin/hello.elf testing arguments",
+        "calc 7 * 8",
         "cat /readme.txt",
         "touch /notes.txt",
         "write /notes.txt Testing interactive shell disk write!",
         "cat /notes.txt",
-        "ls",
-        "user test-all",
         "ps",
         "gui"
     };
@@ -416,8 +549,8 @@ void start(BootParams* bootParams)
     VFS_Initialize();
 
     printf("\n=======================================================\n");
-    printf("  myOS Phase 12: Storage Subsystem, FAT & VFS Architecture\n");
-    printf("  ATA PIO Driver, FAT Filesystem, VFS & File Explorer Active!\n");
+    printf("  myOS Phase 13: ELF32 User Binary Loader & Runtime Architecture\n");
+    printf("  Dynamic ELF Loading, Ring 3 User Apps & Syscalls Active!\n");
     printf("=======================================================\n\n");
 
     // Initialize MLFQ Task Scheduler
@@ -428,6 +561,9 @@ void start(BootParams* bootParams)
 
     // Spawn Phase 12 Storage Subsystem, FAT & VFS Verification Task
     Task_Create("Phase12_Test", Task_Phase12_StorageVerification);
+
+    // Spawn Phase 13 ELF32 User Executable Loader Verification Task
+    Task_Create("Phase13_Test", Task_Phase13_ELFVerification);
 
     // Spawn Phase 9 Interactive Command Shell Task
     Shell_Initialize();

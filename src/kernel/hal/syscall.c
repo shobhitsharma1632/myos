@@ -65,7 +65,7 @@ void Syscall_Handler(Registers* regs)
                    current ? current->id : 0,
                    exit_code);
 
-            Task_Exit();
+            Task_ExitWithCode(exit_code);
             Syscall_RequestYield();
             regs->eax = 0;
             break;
@@ -258,6 +258,40 @@ void Syscall_Handler(Registers* regs)
                 break;
             }
             regs->eax = (uint32_t)vfs_stat(path, st);
+            break;
+        }
+
+        case SYS_SPAWN:
+        {
+            const char* path = (const char*)arg1;
+            int argc = (int)arg2;
+            char* const* argv = (char* const*)arg3;
+
+            if (!path)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            Task* child = Task_CreateUserFromELF(path, path, argc, argv);
+            if (!child)
+            {
+                regs->eax = (uint32_t)-1;
+            }
+            else
+            {
+                regs->eax = child->id;
+            }
+            break;
+        }
+
+        case SYS_WAITPID:
+        {
+            int32_t pid = (int32_t)arg1;
+            int32_t* status = (int32_t*)arg2;
+
+            int32_t res = Task_WaitPID((uint32_t)pid, status);
+            regs->eax = (uint32_t)res;
             break;
         }
 

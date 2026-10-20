@@ -690,6 +690,78 @@ int FAT_Write(FAT_Handle* handle, const void* buffer, size_t count)
     return (int)bytesWritten;
 }
 
+bool FAT_Seek(FAT_Handle* handle, uint32_t offset)
+{
+    if (!g_Mounted || !handle || !handle->used)
+        return false;
+
+    if (!handle->is_dir && offset > handle->file_size)
+        offset = handle->file_size;
+
+    // Reset to beginning of file
+    handle->current_cluster = handle->first_cluster;
+    handle->position = 0;
+    handle->buffer_lba = 0xFFFFFFFF;
+
+    uint32_t clusterBytes = (uint32_t)g_Bpb.sectors_per_cluster * 512;
+    if (clusterBytes == 0)
+        clusterBytes = 512;
+
+    uint32_t clustersToSkip = offset / clusterBytes;
+
+    for (uint32_t i = 0; i < clustersToSkip; i++)
+    {
+        if (handle->current_cluster < 2 || handle->current_cluster >= 0x0FF8)
+            return false;
+        handle->current_cluster = FAT_GetNextCluster(handle->current_cluster);
+    }
+
+    handle->position = offset;
+    return true;
+}
+
+int FAT_SeekEx(FAT_Handle* handle, int32_t offset, int whence)
+{
+    if (!g_Mounted || !handle || !handle->used)
+        return -1;
+
+    int32_t target = 0;
+    if (whence == 0) // SEEK_SET
+    {
+        target = offset;
+    }
+    else if (whence == 1) // SEEK_CUR
+    {
+        target = (int32_t)handle->position + offset;
+    }
+    else if (whence == 2) // SEEK_END
+    {
+        target = (int32_t)handle->file_size + offset;
+    }
+    else
+    {
+        return -1;
+    }
+
+    if (target < 0)
+        return -1;
+
+    if (!FAT_Seek(handle, (uint32_t)target))
+        return -1;
+
+    return (int)handle->position;
+}
+
+uint32_t FAT_Tell(FAT_Handle* handle)
+{
+    return handle ? handle->position : 0;
+}
+
+uint32_t FAT_GetSize(FAT_Handle* handle)
+{
+    return handle ? handle->file_size : 0;
+}
+
 bool FAT_Close(FAT_Handle* handle)
 {
     if (!g_Mounted || !handle || !handle->used)

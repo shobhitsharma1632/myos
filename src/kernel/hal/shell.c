@@ -97,6 +97,25 @@ static void Shell_ComputeWorker(void)
     }
 }
 
+static void Shell_ExecuteELF(const char* filepath, int argc, char* const argv[])
+{
+    shell_print("Launching '%s' in Ring 3 user mode...\n", filepath);
+    Task* child = Task_CreateUserFromELF(filepath, filepath, argc, argv);
+    if (!child)
+    {
+        shell_print("Error: Failed to load and execute '%s'!\n", filepath);
+        return;
+    }
+
+    uint32_t pid = child->id;
+    int32_t exit_code = 0;
+    int32_t waitRes = Task_WaitPID(pid, &exit_code);
+    if (waitRes >= 0)
+    {
+        shell_print("[Process %u terminated with exit code %d]\n", pid, exit_code);
+    }
+}
+
 static size_t Shell_ReadLine(char* buffer, size_t maxLen)
 {
     size_t len = 0;
@@ -186,6 +205,7 @@ void Shell_Execute(char* cmdLine)
         shell_print("  cat <file>          - Read and display file contents\n");
         shell_print("  touch <file>        - Create a new empty file\n");
         shell_print("  write <file> <text> - Write or append text to a file\n");
+        shell_print("  exec <elf> [args..] - Execute standalone ELF binary from disk in Ring 3\n");
         shell_print("  kill <pid>          - Terminate task by Process ID\n");
         shell_print("  stats               - Dump live MLFQ scheduling metrics\n");
         shell_print("  gui                 - Launch high-resolution 1024x768 GUI desktop\n");
@@ -386,11 +406,11 @@ void Shell_Execute(char* cmdLine)
         {
             if (entry.is_directory)
             {
-                shell_print("  <DIR>   %12s  %s\n", "-", entry.name);
+                shell_print("  <DIR>     [DIR]      %s\n", entry.name);
             }
             else
             {
-                shell_print("  <FILE>  %12u  %s\n", entry.size, entry.name);
+                shell_print("  <FILE>    %u B\t%s\n", entry.size, entry.name);
             }
             index++;
             count++;
@@ -479,9 +499,64 @@ void Shell_Execute(char* cmdLine)
         for (volatile int j = 0; j < 500000; j++);
         i686_outb(0x64, 0xFE);
     }
+    else if (str_cmp(cmd, "exec") == 0)
+    {
+        if (argc < 2)
+        {
+            shell_print("Usage: exec <filepath> [args...]\n");
+        }
+        else
+        {
+            const char* path = argv[1];
+            char* child_argv[MAX_ARGS];
+            int child_argc = argc - 1;
+            for (int i = 0; i < child_argc; i++)
+            {
+                child_argv[i] = argv[i + 1];
+            }
+            child_argv[child_argc] = NULL;
+            Shell_ExecuteELF(path, child_argc, child_argv);
+        }
+    }
     else
     {
-        shell_print("Unknown command: '%s'. Type 'help' for available commands.\n", cmd);
+        // Check if cmd exists as an executable file on disk:
+        // Try exact path, then /bin/<cmd>, then /bin/<cmd>.elf
+        char tryPath[64];
+        bool found = false;
+        VFS_Stat st;
+
+        if (vfs_stat(cmd, &st) == 0 && !st.is_directory)
+        {
+            strcpy(tryPath, cmd);
+            found = true;
+        }
+        else
+        {
+            strcpy(tryPath, "/bin/");
+            strcat(tryPath, cmd);
+            if (vfs_stat(tryPath, &st) == 0 && !st.is_directory)
+            {
+                found = true;
+            }
+            else
+            {
+                strcat(tryPath, ".elf");
+                if (vfs_stat(tryPath, &st) == 0 && !st.is_directory)
+                {
+                    found = true;
+                }
+            }
+        }
+
+        if (found)
+        {
+            Shell_ExecuteELF(tryPath, argc, argv);
+        }
+        else
+        {
+            shell_print("Unknown command: '%s'. Type 'help' for available commands.\n", cmd);
+        }
     }
 }
 

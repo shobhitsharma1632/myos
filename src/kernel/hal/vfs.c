@@ -124,6 +124,19 @@ int vfs_write(fd_t fd, const void* buf, size_t count)
     }
 }
 
+int vfs_lseek(fd_t fd, int32_t offset, int whence)
+{
+    if (fd < 4 || fd >= (4 + MAX_VFS_DESCRIPTORS))
+        return -1;
+
+    int slot = fd - 4;
+    FAT_Handle* handle = g_VfsDescriptors[slot];
+    if (!handle)
+        return -1;
+
+    return FAT_SeekEx(handle, offset, whence);
+}
+
 int vfs_close(fd_t fd)
 {
     if (fd < 4) return 0; // Standard streams remain open

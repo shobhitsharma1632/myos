@@ -10,6 +10,7 @@ set(OS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 add_subdirectory(src/bootloader/stage1)
 add_subdirectory(src/bootloader/stage2)
 add_subdirectory(src/kernel)
+add_subdirectory(src/user)
 
 # Image creation
 find_program(MKFS_FAT_EXECUTABLE NAMES mkfs.fat mkfs.vfat)
@@ -37,8 +38,13 @@ if(MKFS_FAT_EXECUTABLE AND MCOPY_EXECUTABLE AND MMD_EXECUTABLE AND DD_EXECUTABLE
         COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} ${KERNEL_ELF} "::boot/kernel.elf"
         COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_SOURCE_DIR}/disk_files/readme.txt" "::readme.txt"
         COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_SOURCE_DIR}/disk_files/hello.txt" "::hello.txt"
+        COMMAND ${MMD_EXECUTABLE} -i ${FLOPPY_IMAGE} "::bin"
+        COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/hello.elf" "::bin/hello.elf"
+        COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/calc.elf" "::bin/calc.elf"
+        COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/counter.elf" "::bin/counter.elf"
+        COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/cat.elf" "::bin/cat.elf"
         COMMAND ${PYTHON3_EXECUTABLE} ${INSTALL_BOOTLOADER_PY} ${FLOPPY_IMAGE} ${BOOTLOADER_STAGE1_BIN} ${BOOTLOADER_STAGE1_MAP} ${BOOTLOADER_STAGE2_BIN} 0
-        DEPENDS bootloader_stage1 bootloader_stage2 kernel
+        DEPENDS bootloader_stage1 bootloader_stage2 kernel user_apps
         COMMENT "Creating floppy image with patched bootloader and sample files"
     )
 

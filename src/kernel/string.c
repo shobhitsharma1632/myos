@@ -52,6 +52,14 @@ char* strncpy(char* dst, const char* src, size_t n)
     return orig;
 }
 
+char* strcat(char* dst, const char* src)
+{
+    char* orig = dst;
+    while (*dst) dst++;
+    while ((*dst++ = *src++));
+    return orig;
+}
+
 const char* strchr(const char* str, char chr)
 {
     if (str == NULL)

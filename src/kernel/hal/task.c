@@ -1,4 +1,5 @@
 #include "task.h"
+#include "elf_loader.h"
 #include <hal/heap.h>
 #include <hal/vmm.h>
 #include <hal/pmm.h>
@@ -7,6 +8,7 @@
 #include <arch/i686/gdt.h>
 #include <arch/i686/tss.h>
 #include <memory.h>
+#include <string.h>
 #include <stdio.h>
 #include <debug.h>
 
@@ -421,7 +423,7 @@ void Task_Yield(void)
     __asm__ volatile("int $0x81");
 }
 
-void Task_Exit(void)
+void Task_ExitWithCode(int32_t code)
 {
     // Atomically transition task to TERMINATED state and enqueue to reaper list
     i686_DisableInterrupts();
@@ -429,6 +431,7 @@ void Task_Exit(void)
     Task* current = g_CurrentTask;
     if (current)
     {
+        current->exit_code = code;
         current->state = TASK_TERMINATED;
         current->next = g_TerminatedHead;
         g_TerminatedHead = current;
@@ -442,6 +445,11 @@ void Task_Exit(void)
     {
         i686_Halt();
     }
+}
+
+void Task_Exit(void)
+{
+    Task_ExitWithCode(0);
 }
 
 bool Task_Kill(uint32_t pid)
@@ -470,6 +478,7 @@ bool Task_Kill(uint32_t pid)
             {
                 Queue_Remove(&g_MLFQ[p], t);
                 t->state = TASK_TERMINATED;
+                t->reapable = true;
                 t->next = g_TerminatedHead;
                 g_TerminatedHead = t;
 
@@ -484,6 +493,218 @@ bool Task_Kill(uint32_t pid)
 
     if (ints) i686_EnableInterrupts();
     return false;
+}
+
+Task* Task_Find(uint32_t pid)
+{
+    if (g_CurrentTask && g_CurrentTask->id == pid)
+        return g_CurrentTask;
+
+    for (int p = 0; p < MLFQ_LEVELS; p++)
+    {
+        Task* t = g_MLFQ[p].head;
+        while (t)
+        {
+            if (t->id == pid)
+                return t;
+            t = t->next;
+        }
+    }
+
+    Task* s = g_SleepingHead;
+    while (s)
+    {
+        if (s->id == pid)
+            return s;
+        s = s->next;
+    }
+
+    Task* term = g_TerminatedHead;
+    while (term)
+    {
+        if (term->id == pid)
+            return term;
+        term = term->next;
+    }
+
+    return NULL;
+}
+
+int32_t Task_WaitPID(uint32_t pid, int32_t* outExitCode)
+{
+    while (true)
+    {
+        uint8_t ints = i686_DisableInterrupts();
+        Task* t = Task_Find(pid);
+        if (!t)
+        {
+            if (ints) i686_EnableInterrupts();
+            // Process does not exist or has already been reaped
+            return -1;
+        }
+
+        if (t->state == TASK_TERMINATED)
+        {
+            if (outExitCode)
+                *outExitCode = t->exit_code;
+            t->reapable = true;
+            if (ints) i686_EnableInterrupts();
+            return (int32_t)pid;
+        }
+
+        if (ints) i686_EnableInterrupts();
+        Task_Yield();
+    }
+}
+
+Task* Task_CreateUserFromELF(const char* name, const char* filepath, int argc, char* const argv[])
+{
+    ELF_ProgramImage image;
+    if (!ELF_Load(filepath, &image))
+    {
+        log_err(MODULE, "Task_CreateUserFromELF: failed to load ELF '%s'", filepath);
+        return NULL;
+    }
+
+    Task* task = (Task*)kmalloc(sizeof(Task));
+    if (!task)
+    {
+        ELF_Unload(&image);
+        return NULL;
+    }
+    memset(task, 0, sizeof(Task));
+
+    // Allocate 4 KiB kernel stack for privilege transitions (Ring 3 -> Ring 0)
+    void* kstack = kmalloc(TASK_STACK_SIZE);
+    if (!kstack)
+    {
+        kfree(task);
+        ELF_Unload(&image);
+        return NULL;
+    }
+    memset(kstack, 0, TASK_STACK_SIZE);
+
+    task->magic = TASK_MAGIC;
+    task->id = g_NextPID++;
+    task->is_user = true;
+
+    int idx = 0;
+    if (name)
+    {
+        while (name[idx] && idx < 31)
+        {
+            task->name[idx] = name[idx];
+            idx++;
+        }
+    }
+    task->name[idx] = '\0';
+
+    task->state = TASK_READY;
+    task->stack_base = (uint32_t)kstack;
+    task->stack_size = TASK_STACK_SIZE;
+    task->kernel_stack_top = (uint32_t)kstack + TASK_STACK_SIZE;
+    task->page_directory_phys = image.page_directory_phys;
+    task->entry = (void (*)(void))image.entry_point;
+    task->user_heap_break = image.user_heap_break;
+    task->waitable = true;
+    task->reapable = false;
+
+    // Track physical pages for cleanup on exit
+    task->elf_pages_count = image.pages_count;
+    for (size_t i = 0; i < image.pages_count; i++)
+    {
+        task->elf_pages_phys[i] = image.pages_phys[i];
+    }
+    task->elf_pts_count = image.pts_count;
+    for (size_t i = 0; i < image.pts_count; i++)
+    {
+        task->elf_pts_phys[i] = image.pts_phys[i];
+    }
+
+    task->priority = MLFQ_PRIORITY_HIGH;
+    task->ticks_remaining = g_MLFQ_Quanta[MLFQ_PRIORITY_HIGH];
+
+    // Find the top stack page physical frame to format initial user stack
+    void* top_stack_phys = image.pages_phys[image.pages_count - 1];
+    uint32_t top_stack_virt = USER_STACK_TOP; // 0x40100000
+    uint32_t page_base_virt = top_stack_virt - PAGE_SIZE; // 0x400FF000
+
+    // Setup arguments on user stack in standard System V ABI format
+    uint32_t curr_sp = top_stack_virt;
+    uint32_t argv_ptrs[16];
+    int actual_argc = argc > 16 ? 16 : argc;
+
+    // Copy argument strings to top of user stack
+    for (int i = actual_argc - 1; i >= 0; i--)
+    {
+        const char* arg = (argv && argv[i]) ? argv[i] : "";
+        size_t len = strlen(arg) + 1;
+        curr_sp -= len;
+        uint32_t page_offset = curr_sp - page_base_virt;
+        memcpy((uint8_t*)top_stack_phys + page_offset, arg, len);
+        argv_ptrs[i] = curr_sp;
+    }
+
+    // 4-byte align the stack pointer
+    curr_sp &= ~3;
+
+    // Place NULL-terminated argv array
+    curr_sp -= 4; // argv[actual_argc] = NULL
+    *(uint32_t*)((uint8_t*)top_stack_phys + (curr_sp - page_base_virt)) = 0;
+
+    for (int i = actual_argc - 1; i >= 0; i--)
+    {
+        curr_sp -= 4;
+        *(uint32_t*)((uint8_t*)top_stack_phys + (curr_sp - page_base_virt)) = argv_ptrs[i];
+    }
+    uint32_t argv_array_user_ptr = curr_sp;
+
+    // Setup call frame for _start:
+    // [esp + 8] = argv pointer (user virtual address)
+    // [esp + 4] = argc
+    // [esp + 0] = dummy return address
+    curr_sp -= 4;
+    *(uint32_t*)((uint8_t*)top_stack_phys + (curr_sp - page_base_virt)) = argv_array_user_ptr;
+
+    curr_sp -= 4;
+    *(uint32_t*)((uint8_t*)top_stack_phys + (curr_sp - page_base_virt)) = (uint32_t)actual_argc;
+
+    curr_sp -= 4;
+    *(uint32_t*)((uint8_t*)top_stack_phys + (curr_sp - page_base_virt)) = 0; // return address
+
+    // Forge Ring 3 interrupt stack frame on kernel stack
+    uint8_t* kstack_top = (uint8_t*)task->kernel_stack_top;
+    Registers* regs = (Registers*)(kstack_top - sizeof(Registers));
+    memset(regs, 0, sizeof(Registers));
+
+    regs->ds           = USER_DATA_SELECTOR;           // 0x23 (Ring 3 User Data Segment)
+    regs->edi          = 0;
+    regs->esi          = 0;
+    regs->ebp          = 0;
+    regs->esp_original = 0;
+    regs->ebx          = 0;
+    regs->edx          = 0;
+    regs->ecx          = 0;
+    regs->eax          = 0;
+    regs->interrupt    = 0;
+    regs->error        = 0;
+    regs->eip          = image.entry_point;            // ELF entry point address
+    regs->cs           = USER_CODE_SELECTOR;           // 0x1B (Ring 3 User Code Segment)
+    regs->eflags       = 0x0202;                       // IF=1
+    regs->esp          = curr_sp;                      // User stack pointer
+    regs->ss           = USER_DATA_SELECTOR;           // 0x23 (Ring 3 User Stack Segment)
+
+    task->esp = (uint32_t)regs;
+
+    // Insert task into MLFQ Queue 0
+    uint8_t ints = i686_DisableInterrupts();
+    Queue_PushBack(&g_MLFQ[MLFQ_PRIORITY_HIGH], task);
+    if (ints) i686_EnableInterrupts();
+
+    log_info(MODULE, "Created ELF User Process '%s' (PID %u): Entry @ 0x%x, Stack @ 0x%x, PD @ 0x%x",
+             task->name, task->id, regs->eip, regs->esp, task->page_directory_phys);
+
+    return task;
 }
 
 Registers* Task_Schedule(Registers* currentRegs)
@@ -668,7 +889,7 @@ Registers* Task_Schedule(Registers* currentRegs)
     while (term != NULL)
     {
         Task* nextTerm = term->next;
-        if (term != executingTask)
+        if (term != executingTask && (!term->waitable || term->reapable))
         {
             if (prevTerm)
                 prevTerm->next = nextTerm;
@@ -681,14 +902,34 @@ Registers* Task_Schedule(Registers* currentRegs)
             // Free user-mode virtual memory mappings and physical frames
             if (term->is_user)
             {
-                if (term->user_code_virt)
-                    VMM_UnmapPage((void*)term->user_code_virt);
-                if (term->user_code_phys)
-                    PMM_FreePage((void*)term->user_code_phys);
-                if (term->user_stack_virt)
-                    VMM_UnmapPage((void*)term->user_stack_virt);
-                if (term->user_stack_phys)
-                    PMM_FreePage((void*)term->user_stack_phys);
+                if (term->page_directory_phys != 0)
+                {
+                    // Free tracked ELF physical pages (code, data, stack)
+                    for (size_t p = 0; p < term->elf_pages_count; p++)
+                    {
+                        if (term->elf_pages_phys[p])
+                            PMM_FreePage(term->elf_pages_phys[p]);
+                    }
+                    // Free tracked Page Tables
+                    for (size_t pt = 0; pt < term->elf_pts_count; pt++)
+                    {
+                        if (term->elf_pts_phys[pt])
+                            PMM_FreePage(term->elf_pts_phys[pt]);
+                    }
+                    // Free Page Directory
+                    PMM_FreePage((void*)term->page_directory_phys);
+                }
+                else
+                {
+                    if (term->user_code_virt)
+                        VMM_UnmapPage((void*)term->user_code_virt);
+                    if (term->user_code_phys)
+                        PMM_FreePage((void*)term->user_code_phys);
+                    if (term->user_stack_virt)
+                        VMM_UnmapPage((void*)term->user_stack_virt);
+                    if (term->user_stack_phys)
+                        PMM_FreePage((void*)term->user_stack_phys);
+                }
             }
 
             if (term->stack_base)
@@ -705,6 +946,23 @@ Registers* Task_Schedule(Registers* currentRegs)
     // 6. Switch context to nextTask
     g_CurrentTask = nextTask;
     nextTask->state = TASK_RUNNING;
+
+    // Switch Page Directory if task has its own address space
+    if (nextTask->page_directory_phys != 0)
+    {
+        if (i686_VMM_GetPageDirectory() != nextTask->page_directory_phys)
+        {
+            i686_VMM_LoadPageDirectory(nextTask->page_directory_phys);
+        }
+    }
+    else
+    {
+        uint32_t kpd = (uint32_t)VMM_GetKernelPageDirectory();
+        if (kpd && i686_VMM_GetPageDirectory() != kpd)
+        {
+            i686_VMM_LoadPageDirectory(kpd);
+        }
+    }
 
     // Update TSS kernel stack pointer for privilege transitions (Ring 3 -> Ring 0)
     TSS_SetKernelStack(nextTask->kernel_stack_top);

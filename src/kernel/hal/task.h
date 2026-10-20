@@ -44,6 +44,16 @@ struct Task {
     uint32_t    user_stack_virt;    // Virtual address of user stack page base
     uint32_t    user_heap_break;    // Current program break for sbrk()
 
+    // Dynamic ELF Process Fields
+    uint32_t    page_directory_phys; // Physical address of dedicated Page Directory (0 = kernel/legacy slot)
+    int32_t     exit_code;           // Exit code reported via SYS_EXIT
+    bool        waitable;            // True if process lifecycle retained for Task_WaitPID
+    bool        reapable;            // True if zombie status collected and ready for reaper
+    size_t      elf_pages_count;
+    void*       elf_pages_phys[64];
+    size_t      elf_pts_count;
+    void*       elf_pts_phys[16];
+
     // MLFQ Scheduling Fields
     uint8_t     priority;           // Current MLFQ level: 0, 1, or 2
     uint32_t    ticks_remaining;    // Remaining ticks in current quantum
@@ -60,8 +70,12 @@ struct Task {
 void        Task_Initialize(void);
 Task*       Task_Create(const char* name, void (*entryPoint)(void));
 Task*       Task_CreateUser(const char* name, const void* code, size_t codeSize);
+Task*       Task_CreateUserFromELF(const char* name, const char* filepath, int argc, char* const argv[]);
+Task*       Task_Find(uint32_t pid);
+int32_t     Task_WaitPID(uint32_t pid, int32_t* outExitCode);
 void        Task_Yield(void);
 void        Task_Exit(void);
+void        Task_ExitWithCode(int32_t code);
 bool        Task_Kill(uint32_t pid);
 Registers*  Task_Schedule(Registers* currentRegs);
 Task*       Task_GetCurrent(void);

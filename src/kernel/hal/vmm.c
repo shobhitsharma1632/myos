@@ -133,6 +133,11 @@ void VMM_Initialize(const BootParams* bootParams)
     }
 }
 
+uint32_t* VMM_GetKernelPageDirectory(void)
+{
+    return g_KernelPageDirectory;
+}
+
 bool VMM_MapPage(void* virtAddr, void* physAddr, uint32_t flags)
 {
     uint32_t vaddr = (uint32_t)virtAddr;

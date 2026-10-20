@@ -198,6 +198,28 @@
   - Interactive Desktop Window displaying directory listings with file icons and sizes.
   - Shell commands: `disk` (hardware inspection), `ls [path]`, `cat <file>`, `touch <file>`, `write <file> <text...>`.
 
+### 9. ELF32 Dynamic Binary Loader, User Runtime & Applications (Phase 13)
+- **Dynamic ELF32 Binary Loader (`elf_loader.c`, `elf_loader.h`):**
+  - Parses and verifies standard 32-bit ELF binaries compiled with `i686-elf-gcc` (`ET_EXEC`, `EM_386`).
+  - Allocates dedicated per-process Page Directories (`pd_phys`) mapping user space at virtual `0x40000000+` while sharing kernel identity mappings.
+  - Automatically loads and maps `PT_LOAD` segments, zero-fills `.bss`, and provisions a 16 KiB private user stack (`0x400FC000`–`0x40100000`).
+- **System V i386 ABI Call Frame & Process Lifecycle:**
+  - `Task_CreateUserFromELF` sets up the initial stack frame with standard `argc`, `argv` string pointers, and NULL-terminated pointer arrays.
+  - Forges Ring 3 `IRET` frames (`CS=0x1B`, `SS=0x23`, `EFLAGS=0x0202`) with hardware `CR3` page directory switching in `Task_Schedule`.
+  - Process lifecycle management with `Task_WaitPID` and zombie state protection (`waitable`/`reapable`) preventing premature task destruction before exit code collection.
+  - New syscalls: `SYS_SPAWN` (16) and `SYS_WAITPID` (17).
+- **User-Space Runtime & Standard Library (`src/user/`):**
+  - Custom user linker script `linker.ld` (virtual entry at `0x40000000`).
+  - Runtime startup stub `crt0.asm` extracting `argc`/`argv` and passing return codes to `sys_exit`.
+  - User library `libuser.c`, `libuser.h` providing full syscall wrappers, string routines, and formatted `printf`.
+- **Standalone User Applications (`/bin/`):**
+  - `hello.elf`: Inspects PID and outputs command-line arguments.
+  - `calc.elf`: Interactive command-line arithmetic evaluator (`+`, `-`, `*`, `/`, `%`) returning result as exit status.
+  - `counter.elf`: Countdown loop exercising non-busy `sys_sleep()` cycles and returning code 42.
+  - `cat.elf`: Standalone file viewer reading disk files directly via `sys_open`/`sys_read_file` syscalls.
+- **Interactive Shell Execution:**
+  - `exec <filepath> [args...]` command with automatic fallback to `/bin/<cmd>` and `/bin/<cmd>.elf`.
+
 ---
 
 ## Memory Map Layout
@@ -249,9 +271,14 @@ myos/
 │   │   └── stage2/             # 32-bit loader (E820, MBR, FAT12/16/32, ELF32)
 │   ├── kernel/
 │   │   ├── arch/i686/          # x86 CPU hardware drivers (GDT, IDT, PIC, VMM assembly)
-│   │   ├── hal/                # Hardware Abstraction Layer (PMM, VMM, Heap, VFS)
+│   │   ├── hal/                # Hardware Abstraction Layer (PMM, VMM, Heap, VFS, ELF Loader)
 │   │   ├── main.c              # Kernel entry point and test suite
 │   │   └── linker.ld           # elf32-i386 kernel linker script
+│   ├── user/                   # Ring 3 User-space runtime & applications
+│   │   ├── crt0.asm            # User-space C runtime startup
+│   │   ├── linker.ld           # User application linker script (0x40000000)
+│   │   ├── libuser.h/c         # Standard user library and syscall wrappers
+│   │   └── apps/               # Standalone applications (hello, calc, counter, cat)
 │   └── libs/
 │       └── boot/
 │           └── bootparams.h    # Shared Stage 2 <-> Kernel boot data contract

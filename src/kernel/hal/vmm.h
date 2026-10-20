@@ -31,6 +31,7 @@ bool     i686_VMM_IsPagingEnabled(void);
 
 // VMM Interface
 void VMM_Initialize(const BootParams* bootParams);
+uint32_t* VMM_GetKernelPageDirectory(void);
 bool VMM_MapPage(void* virtAddr, void* physAddr, uint32_t flags);
 void VMM_UnmapPage(void* virtAddr);
 bool VMM_GetPhysicalAddress(void* virtAddr, void** outPhysAddr);
