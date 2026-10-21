@@ -84,6 +84,8 @@ void Net_Initialize(void)
         g_NetIf.link_up = true;
 
         ARP_Initialize();
+        extern void TCP_Initialize(void);
+        TCP_Initialize();
 
         char ipStr[16], gwStr[16];
         ipv4_to_str(g_NetIf.ip, ipStr);

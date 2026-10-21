@@ -60,6 +60,8 @@ build_user_app(ifconfig)
 build_user_app(ping)
 build_user_app(tee)
 build_user_app(head)
+build_user_app(curl)
+build_user_app(httpd)
 
 set(ALL_USER_ELFS ${ALL_USER_ELFS} PARENT_SCOPE)
 add_custom_target(user_apps ALL DEPENDS ${ALL_USER_ELFS})

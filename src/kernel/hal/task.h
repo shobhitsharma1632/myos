@@ -13,7 +13,7 @@
 
 #define MLFQ_BOOST_PERIOD       100 // Boost all tasks to Queue 0 every 100 ticks (anti-starvation)
 
-#define TASK_STACK_SIZE         8192
+#define TASK_STACK_SIZE         16384
 #define TASK_MAGIC              0x7A5C1337
 #define TASK_MAX_FDS            16
 

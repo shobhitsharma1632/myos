@@ -9,6 +9,7 @@
 #include <net/net.h>
 #include <net/icmp.h>
 #include <net/udp.h>
+#include <net/tcp.h>
 #include <stdio.h>
 #include <string.h>
 #include <memory.h>
@@ -433,6 +434,153 @@ void Syscall_Handler(Registers* regs)
             int oldfd = (int)arg1;
             int newfd = (int)arg2;
             regs->eax = (uint32_t)vfs_dup2(oldfd, newfd);
+            break;
+        }
+
+        case SYS_SOCKET:
+        {
+            int domain = (int)arg1;
+            int type = (int)arg2;
+            int protocol = (int)arg3;
+            (void)protocol;
+
+            if (domain != AF_INET || type != SOCK_STREAM)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            TCPSocket* sock = TCP_SocketCreate();
+            if (!sock)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            int fd = vfs_socket_create(sock);
+            regs->eax = (uint32_t)fd;
+            break;
+        }
+
+        case SYS_BIND:
+        {
+            int fd = (int)arg1;
+            const struct sockaddr* addr = (const struct sockaddr*)arg2;
+            socklen_t len = (socklen_t)arg3;
+
+            TCPSocket* sock = (TCPSocket*)vfs_socket_get(fd);
+            if (!sock || !addr || len < sizeof(struct sockaddr_in))
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            const struct sockaddr_in* in = (const struct sockaddr_in*)addr;
+            regs->eax = (uint32_t)TCP_Bind(sock, in->sin_addr.s_addr, ntohs(in->sin_port));
+            break;
+        }
+
+        case SYS_LISTEN:
+        {
+            int fd = (int)arg1;
+            int backlog = (int)arg2;
+
+            TCPSocket* sock = (TCPSocket*)vfs_socket_get(fd);
+            if (!sock)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            regs->eax = (uint32_t)TCP_Listen(sock, backlog);
+            break;
+        }
+
+        case SYS_CONNECT:
+        {
+            int fd = (int)arg1;
+            const struct sockaddr* addr = (const struct sockaddr*)arg2;
+            socklen_t len = (socklen_t)arg3;
+
+            TCPSocket* sock = (TCPSocket*)vfs_socket_get(fd);
+            if (!sock || !addr || len < sizeof(struct sockaddr_in))
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            const struct sockaddr_in* in = (const struct sockaddr_in*)addr;
+            regs->eax = (uint32_t)TCP_Connect(sock, in->sin_addr.s_addr, ntohs(in->sin_port));
+            break;
+        }
+
+        case SYS_ACCEPT:
+        {
+            int fd = (int)arg1;
+            struct sockaddr* addr = (struct sockaddr*)arg2;
+            socklen_t* len = (socklen_t*)arg3;
+
+            TCPSocket* sock = (TCPSocket*)vfs_socket_get(fd);
+            if (!sock)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            uint32_t client_ip = 0;
+            uint16_t client_port = 0;
+            TCPSocket* client = TCP_Accept(sock, &client_ip, &client_port);
+            if (!client)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            if (addr && len && *len >= sizeof(struct sockaddr_in))
+            {
+                struct sockaddr_in* in = (struct sockaddr_in*)addr;
+                in->sin_family = AF_INET;
+                in->sin_port = htons(client_port);
+                in->sin_addr.s_addr = client_ip;
+                *len = sizeof(struct sockaddr_in);
+            }
+
+            int client_fd = vfs_socket_create(client);
+            regs->eax = (uint32_t)client_fd;
+            break;
+        }
+
+        case SYS_SEND:
+        {
+            int fd = (int)arg1;
+            const void* buf = (const void*)arg2;
+            size_t count = (size_t)arg3;
+
+            TCPSocket* sock = (TCPSocket*)vfs_socket_get(fd);
+            if (!sock || !buf)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            regs->eax = (uint32_t)TCP_Send(sock, buf, count);
+            break;
+        }
+
+        case SYS_RECV:
+        {
+            int fd = (int)arg1;
+            void* buf = (void*)arg2;
+            size_t count = (size_t)arg3;
+
+            TCPSocket* sock = (TCPSocket*)vfs_socket_get(fd);
+            if (!sock || !buf)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            regs->eax = (uint32_t)TCP_Recv(sock, buf, count);
             break;
         }
 

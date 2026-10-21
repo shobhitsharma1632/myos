@@ -29,17 +29,17 @@ void ICMP_Handle(NetInterface* netif, uint32_t src_ip, const void* packet, size_
     if (req->type == ICMP_TYPE_ECHO_REQUEST)
     {
         // Respond with Echo Reply
-        uint8_t reply_buf[1500];
-        if (len > sizeof(reply_buf)) return;
+        static uint8_t s_icmp_reply_buf[1500];
+        if (len > sizeof(s_icmp_reply_buf)) return;
 
-        memcpy(reply_buf, packet, len);
-        ICMPHeader* reply = (ICMPHeader*)reply_buf;
+        memcpy(s_icmp_reply_buf, packet, len);
+        ICMPHeader* reply = (ICMPHeader*)s_icmp_reply_buf;
         reply->type     = ICMP_TYPE_ECHO_REPLY;
         reply->code     = 0;
         reply->checksum = 0;
-        reply->checksum = net_checksum(reply_buf, len);
+        reply->checksum = net_checksum(s_icmp_reply_buf, len);
 
-        IPv4_Send(netif, src_ip, IPV4_PROTO_ICMP, reply_buf, len);
+        IPv4_Send(netif, src_ip, IPV4_PROTO_ICMP, s_icmp_reply_buf, len);
     }
     else if (req->type == ICMP_TYPE_ECHO_REPLY)
     {

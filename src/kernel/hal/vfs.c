@@ -2,6 +2,7 @@
 #include "fat.h"
 #include "pipe.h"
 #include "task.h"
+#include <net/tcp.h>
 #include <arch/i686/vga_text.h>
 #include <arch/i686/e9.h>
 #include <arch/i686/keyboard.h>
@@ -19,7 +20,8 @@ typedef enum {
     VFS_TYPE_CONSOLE_DEBUG,
     VFS_TYPE_FILE,
     VFS_TYPE_PIPE_READ,
-    VFS_TYPE_PIPE_WRITE
+    VFS_TYPE_PIPE_WRITE,
+    VFS_TYPE_SOCKET
 } VFS_Type;
 
 typedef struct {
@@ -132,6 +134,10 @@ void vfs_clone_task_fds(Task* parent, Task* child)
             {
                 Pipe_RetainWriter((Pipe*)g_OpenFiles[slot].handle);
             }
+            else if (g_OpenFiles[slot].type == VFS_TYPE_SOCKET)
+            {
+                ((TCPSocket*)g_OpenFiles[slot].handle)->ref_count++;
+            }
         }
     }
 }
@@ -153,6 +159,10 @@ void vfs_close_task_fds(Task* task)
             else if (g_OpenFiles[slot].type == VFS_TYPE_PIPE_WRITE)
             {
                 Pipe_CloseWriter((Pipe*)g_OpenFiles[slot].handle);
+            }
+            else if (g_OpenFiles[slot].type == VFS_TYPE_SOCKET)
+            {
+                TCP_Close((TCPSocket*)g_OpenFiles[slot].handle);
             }
             else if (g_OpenFiles[slot].type == VFS_TYPE_FILE)
             {
@@ -249,6 +259,9 @@ int vfs_read(fd_t fd, void* buf, size_t count)
         case VFS_TYPE_PIPE_READ:
             return Pipe_Read((Pipe*)file->handle, buf, count);
 
+        case VFS_TYPE_SOCKET:
+            return TCP_Recv((TCPSocket*)file->handle, buf, count);
+
         default:
             return -1;
     }
@@ -285,6 +298,9 @@ int vfs_write(fd_t fd, const void* buf, size_t count)
 
         case VFS_TYPE_PIPE_WRITE:
             return Pipe_Write((Pipe*)file->handle, buf, count);
+
+        case VFS_TYPE_SOCKET:
+            return TCP_Send((TCPSocket*)file->handle, buf, count);
 
         default:
             return -1;
@@ -331,6 +347,10 @@ int vfs_close(fd_t fd)
     else if (g_OpenFiles[slot].type == VFS_TYPE_PIPE_WRITE)
     {
         Pipe_CloseWriter((Pipe*)g_OpenFiles[slot].handle);
+    }
+    else if (g_OpenFiles[slot].type == VFS_TYPE_SOCKET)
+    {
+        TCP_Close((TCPSocket*)g_OpenFiles[slot].handle);
     }
     else if (g_OpenFiles[slot].type == VFS_TYPE_FILE)
     {
@@ -439,8 +459,48 @@ int vfs_dup2(int oldfd, int newfd)
     {
         Pipe_RetainWriter((Pipe*)g_OpenFiles[old_slot].handle);
     }
+    else if (g_OpenFiles[old_slot].type == VFS_TYPE_SOCKET)
+    {
+        ((TCPSocket*)g_OpenFiles[old_slot].handle)->ref_count++;
+    }
 
     return newfd;
+}
+
+int vfs_socket_create(void* socket_ptr)
+{
+    Task* current = Task_GetCurrent();
+    if (!current || !socket_ptr) return -1;
+
+    int fd = -1;
+    for (int i = 0; i < TASK_MAX_FDS; i++)
+    {
+        if (current->fd_table[i] < 0)
+        {
+            fd = i;
+            break;
+        }
+    }
+    if (fd < 0) return -1;
+
+    int slot = vfs_alloc_open_file();
+    if (slot < 0) return -1;
+
+    g_OpenFiles[slot].type = VFS_TYPE_SOCKET;
+    g_OpenFiles[slot].ref_count = 1;
+    g_OpenFiles[slot].flags = VFS_O_RDWR;
+    g_OpenFiles[slot].handle = socket_ptr;
+
+    current->fd_table[fd] = slot;
+    return fd;
+}
+
+void* vfs_socket_get(int fd)
+{
+    VFS_OpenFile* file = vfs_get_open_file(fd);
+    if (!file || file->type != VFS_TYPE_SOCKET)
+        return NULL;
+    return file->handle;
 }
 
 int vfs_readdir(const char* path, size_t index, VFS_DirEntry* entry)

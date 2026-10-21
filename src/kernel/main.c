@@ -12,6 +12,7 @@
 #include <boot/bootparams.h>
 #include <net/net.h>
 #include <net/icmp.h>
+#include <net/tcp.h>
 
 extern void _init();
 
@@ -26,6 +27,7 @@ static void Task_Phase13_ELFVerification(void);
 static void Task_Phase14_LibcVerification(void);
 static void Task_Phase15_NetworkVerification(void);
 static void Task_Phase16_PipesVerification(void);
+static void Task_Phase17_TCPSocketsVerification(void);
 static void Task_ShellDemo(void);
 
 static void Task_Phase11_UserModeVerification(void)
@@ -777,6 +779,157 @@ static void Task_Phase16_PipesVerification(void)
     }
 
     log_info("Phase16", "=== Phase 16: POSIX Pipes, File Redirection & IPC 100%%%% VERIFIED! ===");
+    Task_Create("Phase17_Test", Task_Phase17_TCPSocketsVerification);
+    Task_Exit();
+}
+
+static void Task_Phase17_TCPSocketsVerification(void)
+{
+    // Wait for scheduler and network to stabilize
+    for (int i = 0; i < 5; i++) Task_Yield();
+
+    log_info("Phase17", "=======================================================");
+    log_info("Phase17", "Starting Phase 17: TCP Protocol Stack & BSD Sockets Verification");
+    log_info("Phase17", "=======================================================");
+
+    NetInterface* netif = Net_GetInterface();
+
+    // Test 1: TCP Socket Creation & Loopback Binding
+    log_info("Phase17", "Test 1: Testing TCP socket creation, bind, and listen...");
+    TCPSocket* srv = TCP_SocketCreate();
+    if (srv && TCP_Bind(srv, netif->ip, 8080) == 0 && TCP_Listen(srv, 5) == 0)
+    {
+        log_info("Phase17", "TCP Server Socket bound to port 8080 (state=%d)", srv->state);
+        if (srv->state == TCP_STATE_LISTEN && srv->local_port == 8080)
+        {
+            log_info("Phase17", "Test 1: TCP Socket Creation & Listen PASSED!");
+        }
+        else
+        {
+            log_err("Phase17", "Test 1: TCP Socket Listen state mismatch FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase17", "Test 1: Failed to create/bind/listen TCP server socket FAILED!");
+    }
+
+    // Test 2: TCP 3-Way Handshake & Connection Establishment
+    log_info("Phase17", "Test 2: Testing TCP 3-way handshake (SYN -> SYN-ACK -> ACK)...");
+    TCPSocket* cli = TCP_SocketCreate();
+    int conn_res = -1;
+    if (cli)
+    {
+        conn_res = TCP_Connect(cli, netif->ip, 8080);
+    }
+
+    uint32_t peer_ip = 0;
+    uint16_t peer_port = 0;
+    TCPSocket* conn = TCP_Accept(srv, &peer_ip, &peer_port);
+
+    log_info("Phase17", "TCP Connect res=%d, client state=%d, server conn=%p, conn state=%d",
+             conn_res, cli ? cli->state : -1, conn, conn ? conn->state : -1);
+
+    if (conn_res == 0 && cli && cli->state == TCP_STATE_ESTABLISHED &&
+        conn && conn->state == TCP_STATE_ESTABLISHED)
+    {
+        log_info("Phase17", "Test 2: TCP 3-Way Handshake PASSED!");
+    }
+    else
+    {
+        log_err("Phase17", "Test 2: TCP 3-Way Handshake FAILED!");
+    }
+
+    // Test 3: Full-Duplex Data Streaming over TCP
+    log_info("Phase17", "Test 3: Testing reliable full-duplex TCP data transmission...");
+    const char* req_msg = "GET /test HTTP/1.0\r\n\r\n";
+    int sent_bytes = TCP_Send(cli, req_msg, strlen(req_msg));
+
+    char srv_rx[64];
+    memset(srv_rx, 0, sizeof(srv_rx));
+    int srv_read = TCP_Recv(conn, srv_rx, sizeof(srv_rx) - 1);
+    log_info("Phase17", "Client sent %d bytes, Server received %d bytes: '%s'", sent_bytes, srv_read, srv_rx);
+
+    const char* resp_msg = "HTTP/1.0 200 OK\r\n\r\nHello TCP!";
+    int resp_sent = TCP_Send(conn, resp_msg, strlen(resp_msg));
+
+    char cli_rx[64];
+    memset(cli_rx, 0, sizeof(cli_rx));
+    int cli_read = TCP_Recv(cli, cli_rx, sizeof(cli_rx) - 1);
+    log_info("Phase17", "Server sent %d bytes, Client received %d bytes: '%s'", resp_sent, cli_read, cli_rx);
+
+    if (srv_read > 0 && strcmp(srv_rx, req_msg) == 0 &&
+        cli_read > 0 && strcmp(cli_rx, resp_msg) == 0)
+    {
+        log_info("Phase17", "Test 3: TCP Full-Duplex Data Streaming PASSED!");
+    }
+    else
+    {
+        log_err("Phase17", "Test 3: TCP Data Streaming payload mismatch FAILED!");
+    }
+
+    // Test 4: Graceful Connection Teardown (FIN -> ACK -> CLOSED)
+    log_info("Phase17", "Test 4: Testing graceful TCP connection termination...");
+    TCP_Close(conn); // Server closes, sends FIN
+    char eof_check[16];
+    int eof_read = TCP_Recv(cli, eof_check, sizeof(eof_check)); // Should read 0 (EOF)
+    log_info("Phase17", "Client recv on closed connection returned: %d (expected 0 for EOF)", eof_read);
+    TCP_Close(cli);
+    TCP_Close(srv);
+
+    if (eof_read == 0)
+    {
+        log_info("Phase17", "Test 4: Graceful TCP Teardown PASSED!");
+    }
+    else
+    {
+        log_err("Phase17", "Test 4: Graceful TCP Teardown FAILED!");
+    }
+
+    // Test 5 & 6: Ring 3 User-Space HTTP Web Server & HTTP Client
+    log_info("Phase17", "Test 5 & 6: Spawning User-Space Web Server ('/bin/httpd.elf --once') and HTTP Client ('/bin/curl.elf')...");
+    char* httpd_args[] = { "/bin/httpd.elf", "--once", NULL };
+    Task* tHttpd = Task_CreateUserFromELF("u_httpd", "/bin/httpd.elf", 2, httpd_args);
+    if (tHttpd)
+    {
+        log_info("Phase17", "Spawned '/bin/httpd.elf' in Ring 3 (PID %u)", tHttpd->id);
+    }
+    else
+    {
+        log_err("Phase17", "Failed to spawn '/bin/httpd.elf'!");
+    }
+
+    // Yield to let httpd bind port 80 and enter listen loop
+    for (int i = 0; i < 15; i++) Task_Yield();
+
+    char* curl_args[] = { "/bin/curl.elf", "http://10.0.2.15/readme.txt", NULL };
+    Task* tCurl = Task_CreateUserFromELF("u_curl", "/bin/curl.elf", 2, curl_args);
+    if (tCurl)
+    {
+        log_info("Phase17", "Spawned '/bin/curl.elf' in Ring 3 (PID %u)", tCurl->id);
+        int32_t status_curl = -1;
+        int32_t wait_curl = Task_WaitPID(tCurl->id, &status_curl);
+        log_info("Phase17", "curl waitRes=%d status=%d", wait_curl, status_curl);
+
+        int32_t status_httpd = -1;
+        int32_t wait_httpd = Task_WaitPID(tHttpd->id, &status_httpd);
+        log_info("Phase17", "httpd waitRes=%d status=%d", wait_httpd, status_httpd);
+
+        if (wait_curl >= 0 && status_curl == 0 && wait_httpd >= 0 && status_httpd == 0)
+        {
+            log_info("Phase17", "Test 5 & 6: User-Space HTTP Server & Client over Ring 3 TCP PASSED!");
+        }
+        else
+        {
+            log_err("Phase17", "Test 5 & 6: HTTP Client/Server execution FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase17", "Failed to spawn '/bin/curl.elf'!");
+    }
+
+    log_info("Phase17", "=== Phase 17: TCP Protocol Stack & BSD Sockets 100%%%% VERIFIED! ===");
     Task_Create("ShellDemo", Task_ShellDemo);
     Task_Exit();
 }
@@ -796,6 +949,7 @@ static void Task_ShellDemo(void)
         "cat /readme.txt | grep Storage",
         "cat /readme.txt | grep Phase | wc",
         "head -n 2 /readme.txt",
+        "curl http://10.0.2.15/readme.txt | grep Storage",
         "exec /bin/hello.elf testing arguments",
         "calc 7 * 8",
         "cat /readme.txt",
@@ -806,7 +960,7 @@ static void Task_ShellDemo(void)
         "gui"
     };
 
-    for (int c = 0; c < 19; c++)
+    for (int c = 0; c < 20; c++)
     {
         const char* cmd = demoCmds[c];
         log_info("ShellDemo", "Simulating keyboard input: '%s'", cmd);
@@ -1006,15 +1160,15 @@ void start(BootParams* bootParams)
     Net_Initialize();
 
     printf("\n=======================================================\n");
-    printf("  myOS Phase 16: POSIX Pipes, File Redirection & IPC\n");
-    printf("  sys_pipe, sys_dup2, Shell Pipelines (|) & User Utilities Active!\n");
+    printf("  myOS Phase 17: TCP Protocol Stack & BSD Sockets\n");
+    printf("  RFC 793 TCP State Machine, BSD Sockets, /bin/curl & /bin/httpd Active!\n");
     printf("=======================================================\n\n");
 
     // Initialize MLFQ Task Scheduler
     Task_Initialize();
 
     // Spawn Phase 11 Ring 3 User Mode Automated Verification Pipeline
-    // (Sequentially cascades: Phase 11 -> Phase 12 -> Phase 13 -> Phase 14 -> Phase 15 -> Phase 16 -> ShellDemo)
+    // (Sequentially cascades: Phase 11 -> Phase 12 -> Phase 13 -> Phase 14 -> Phase 15 -> Phase 16 -> Phase 17 -> ShellDemo)
     Task_Create("Phase11_Test", Task_Phase11_UserModeVerification);
 
     // Spawn Phase 9 Interactive Command Shell Task

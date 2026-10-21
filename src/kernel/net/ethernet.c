@@ -12,24 +12,24 @@ bool Ethernet_Send(NetInterface* netif, const uint8_t dst_mac[6], uint16_t ether
     if (!netif || !dst_mac || !payload || len > 1500)
         return false;
 
-    uint8_t buffer[1518];
-    EthernetHeader* hdr = (EthernetHeader*)buffer;
+    static uint8_t s_eth_tx_buffer[1518];
+    EthernetHeader* hdr = (EthernetHeader*)s_eth_tx_buffer;
 
     memcpy(hdr->dst_mac, dst_mac, 6);
     memcpy(hdr->src_mac, netif->mac, 6);
     hdr->ethertype = htons(ethertype);
 
-    memcpy(buffer + sizeof(EthernetHeader), payload, len);
+    memcpy(s_eth_tx_buffer + sizeof(EthernetHeader), payload, len);
 
     size_t total_len = sizeof(EthernetHeader) + len;
     // Ethernet minimum frame length without FCS is 60 bytes
     if (total_len < 60)
     {
-        memset(buffer + total_len, 0, 60 - total_len);
+        memset(s_eth_tx_buffer + total_len, 0, 60 - total_len);
         total_len = 60;
     }
 
-    if (E1000_SendPacket(buffer, total_len))
+    if (E1000_SendPacket(s_eth_tx_buffer, total_len))
     {
         netif->tx_packets++;
         netif->tx_bytes += total_len;

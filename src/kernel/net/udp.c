@@ -35,17 +35,17 @@ bool UDP_Send(NetInterface* netif, uint32_t dst_ip, uint16_t src_port, uint16_t 
     if (!netif || !payload || len > 1472)
         return false;
 
-    uint8_t buffer[1480];
-    UDPHeader* hdr = (UDPHeader*)buffer;
+    static uint8_t s_udp_tx_buffer[1480];
+    UDPHeader* hdr = (UDPHeader*)s_udp_tx_buffer;
 
     hdr->src_port = htons(src_port);
     hdr->dst_port = htons(dst_port);
     hdr->length   = htons(sizeof(UDPHeader) + len);
     hdr->checksum = 0; // Checksum is optional in IPv4 UDP
 
-    memcpy(buffer + sizeof(UDPHeader), payload, len);
+    memcpy(s_udp_tx_buffer + sizeof(UDPHeader), payload, len);
 
-    return IPv4_Send(netif, dst_ip, IPV4_PROTO_UDP, buffer, sizeof(UDPHeader) + len);
+    return IPv4_Send(netif, dst_ip, IPV4_PROTO_UDP, s_udp_tx_buffer, sizeof(UDPHeader) + len);
 }
 
 void UDP_Handle(NetInterface* netif, uint32_t src_ip, const void* packet, size_t len)

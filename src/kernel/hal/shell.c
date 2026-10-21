@@ -277,6 +277,8 @@ static int Shell_ExecuteSingle(char* cmdLine, bool wait_for_exit)
         shell_print("  disk                - Show ATA drive and FAT filesystem status\n");
         shell_print("  ifconfig            - Display network interface and IP configuration\n");
         shell_print("  ping <ip>           - Send ICMP echo requests to network host\n");
+        shell_print("  curl <url>          - HTTP client: fetch URL over TCP socket\n");
+        shell_print("  httpd [port]        - HTTP server: start embedded web server in Ring 3\n");
         shell_print("  ls [path]           - List files and directories on disk\n");
         shell_print("  cat <file>          - Read and display file contents\n");
         shell_print("  touch <file>        - Create a new empty file\n");

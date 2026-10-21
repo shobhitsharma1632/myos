@@ -146,3 +146,63 @@ int      sys_net_ping(uint32_t target_ip, uint32_t timeout_ms);
 int      sys_net_send_udp(uint32_t target_ip, uint16_t src_port, uint16_t dst_port, const void* data, size_t len);
 void     inet_ntoa(uint32_t ip, char* buf);
 uint32_t inet_addr(const char* cp);
+
+// BSD Sockets Subsystem API
+#define AF_UNSPEC 0
+#define AF_UNIX   1
+#define AF_INET   2
+
+#define SOCK_STREAM 1
+#define SOCK_DGRAM  2
+#define SOCK_RAW    3
+
+#define IPPROTO_IP   0
+#define IPPROTO_ICMP 1
+#define IPPROTO_TCP  6
+#define IPPROTO_UDP  17
+
+#define INADDR_ANY       0x00000000
+#define INADDR_LOOPBACK  0x7F000001
+#define INADDR_BROADCAST 0xFFFFFFFF
+
+typedef uint32_t socklen_t;
+
+struct in_addr {
+    uint32_t s_addr;
+};
+
+struct sockaddr {
+    uint16_t sa_family;
+    char     sa_data[14];
+};
+
+struct sockaddr_in {
+    uint16_t       sin_family;
+    uint16_t       sin_port;
+    struct in_addr sin_addr;
+    char           sin_zero[8];
+};
+
+// Low-level socket syscall wrappers
+int      sys_socket(int domain, int type, int protocol);
+int      sys_bind(int fd, const struct sockaddr* addr, socklen_t len);
+int      sys_listen(int fd, int backlog);
+int      sys_connect(int fd, const struct sockaddr* addr, socklen_t len);
+int      sys_accept(int fd, struct sockaddr* addr, socklen_t* len);
+int      sys_send(int fd, const void* buf, size_t len, int flags);
+int      sys_recv(int fd, void* buf, size_t len, int flags);
+
+// Standard BSD Socket API aliases
+int      socket(int domain, int type, int protocol);
+int      bind(int fd, const struct sockaddr* addr, socklen_t len);
+int      listen(int fd, int backlog);
+int      connect(int fd, const struct sockaddr* addr, socklen_t len);
+int      accept(int fd, struct sockaddr* addr, socklen_t* len);
+int      send(int fd, const void* buf, size_t len, int flags);
+int      recv(int fd, void* buf, size_t len, int flags);
+
+// Endian byte order conversion
+uint16_t htons(uint16_t hostshort);
+uint16_t ntohs(uint16_t netshort);
+uint32_t htonl(uint32_t hostlong);
+uint32_t ntohl(uint32_t netlong);

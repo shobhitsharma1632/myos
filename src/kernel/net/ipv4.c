@@ -3,6 +3,7 @@
 #include "arp.h"
 #include "icmp.h"
 #include "udp.h"
+#include "tcp.h"
 #include <memory.h>
 #include <string.h>
 #include <debug.h>
@@ -15,6 +16,26 @@ bool IPv4_Send(NetInterface* netif, uint32_t dst_ip, uint8_t protocol, const voi
 {
     if (!netif || !payload || len > 1480)
         return false;
+
+    // Handle loopback directly to protocol handlers
+    if (dst_ip == netif->ip || (dst_ip & 0xFF) == 127)
+    {
+        if (protocol == IPV4_PROTO_TCP)
+        {
+            TCP_Handle(netif, netif->ip, dst_ip, payload, len);
+            return true;
+        }
+        else if (protocol == IPV4_PROTO_UDP)
+        {
+            UDP_Handle(netif, netif->ip, payload, len);
+            return true;
+        }
+        else if (protocol == IPV4_PROTO_ICMP)
+        {
+            ICMP_Handle(netif, netif->ip, payload, len);
+            return true;
+        }
+    }
 
     // Determine target next hop IP
     uint32_t next_hop = dst_ip;
@@ -33,8 +54,8 @@ bool IPv4_Send(NetInterface* netif, uint32_t dst_ip, uint8_t protocol, const voi
         return false;
     }
 
-    uint8_t buffer[1500];
-    IPv4Header* hdr = (IPv4Header*)buffer;
+    static uint8_t s_ipv4_tx_buffer[1500];
+    IPv4Header* hdr = (IPv4Header*)s_ipv4_tx_buffer;
 
     hdr->version_ihl     = 0x45; // IPv4, IHL = 5 (20 bytes)
     hdr->tos             = 0;
@@ -49,9 +70,9 @@ bool IPv4_Send(NetInterface* netif, uint32_t dst_ip, uint8_t protocol, const voi
 
     hdr->checksum = net_checksum(hdr, sizeof(IPv4Header));
 
-    memcpy(buffer + sizeof(IPv4Header), payload, len);
+    memcpy(s_ipv4_tx_buffer + sizeof(IPv4Header), payload, len);
 
-    return Ethernet_Send(netif, dst_mac, ETHERTYPE_IPV4, buffer, sizeof(IPv4Header) + len);
+    return Ethernet_Send(netif, dst_mac, ETHERTYPE_IPV4, s_ipv4_tx_buffer, sizeof(IPv4Header) + len);
 }
 
 void IPv4_Handle(NetInterface* netif, const void* packet, size_t len)
@@ -94,5 +115,9 @@ void IPv4_Handle(NetInterface* netif, const void* packet, size_t len)
     else if (hdr->protocol == IPV4_PROTO_UDP)
     {
         UDP_Handle(netif, hdr->src_ip, payload, payload_len);
+    }
+    else if (hdr->protocol == IPV4_PROTO_TCP)
+    {
+        TCP_Handle(netif, hdr->src_ip, hdr->dst_ip, payload, payload_len);
     }
 }

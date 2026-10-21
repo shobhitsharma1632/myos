@@ -1102,3 +1102,102 @@ uint32_t inet_addr(const char* cp)
 
     return (parts[3] << 24) | (parts[2] << 16) | (parts[1] << 8) | parts[0];
 }
+
+// ============================================================================
+// BSD Sockets Subsystem User API
+// ============================================================================
+
+int sys_socket(int domain, int type, int protocol)
+{
+    return syscall3(25, domain, type, protocol);
+}
+
+int sys_bind(int fd, const struct sockaddr* addr, socklen_t len)
+{
+    return syscall3(26, fd, (uint32_t)addr, len);
+}
+
+int sys_listen(int fd, int backlog)
+{
+    return syscall2(27, fd, backlog);
+}
+
+int sys_connect(int fd, const struct sockaddr* addr, socklen_t len)
+{
+    return syscall3(28, fd, (uint32_t)addr, len);
+}
+
+int sys_accept(int fd, struct sockaddr* addr, socklen_t* len)
+{
+    return syscall3(29, fd, (uint32_t)addr, (uint32_t)len);
+}
+
+int sys_send(int fd, const void* buf, size_t len, int flags)
+{
+    (void)flags;
+    return syscall3(30, fd, (uint32_t)buf, len);
+}
+
+int sys_recv(int fd, void* buf, size_t len, int flags)
+{
+    (void)flags;
+    return syscall3(31, fd, (uint32_t)buf, len);
+}
+
+int socket(int domain, int type, int protocol)
+{
+    return sys_socket(domain, type, protocol);
+}
+
+int bind(int fd, const struct sockaddr* addr, socklen_t len)
+{
+    return sys_bind(fd, addr, len);
+}
+
+int listen(int fd, int backlog)
+{
+    return sys_listen(fd, backlog);
+}
+
+int connect(int fd, const struct sockaddr* addr, socklen_t len)
+{
+    return sys_connect(fd, addr, len);
+}
+
+int accept(int fd, struct sockaddr* addr, socklen_t* len)
+{
+    return sys_accept(fd, addr, len);
+}
+
+int send(int fd, const void* buf, size_t len, int flags)
+{
+    return sys_send(fd, buf, len, flags);
+}
+
+int recv(int fd, void* buf, size_t len, int flags)
+{
+    return sys_recv(fd, buf, len, flags);
+}
+
+uint16_t htons(uint16_t hostshort)
+{
+    return (uint16_t)(((hostshort & 0xFF) << 8) | ((hostshort >> 8) & 0xFF));
+}
+
+uint16_t ntohs(uint16_t netshort)
+{
+    return htons(netshort);
+}
+
+uint32_t htonl(uint32_t hostlong)
+{
+    return ((hostlong & 0xFF) << 24) |
+           (((hostlong >> 8) & 0xFF) << 16) |
+           (((hostlong >> 16) & 0xFF) << 8) |
+           ((hostlong >> 24) & 0xFF);
+}
+
+uint32_t ntohl(uint32_t netlong)
+{
+    return htonl(netlong);
+}

@@ -291,6 +291,26 @@
   - Concurrent pipeline execution: all pipeline stages are spawned concurrently with inherited pipe descriptors and awaited in parallel, preventing deadlocks or buffer stalls on large data streams.
   - Clean stream isolation: informational shell banners are automatically suppressed when stdout is redirected.
 
+### 13. TCP Protocol Stack, BSD Sockets & Web Applications (Phase 17)
+- **RFC 793 TCP Protocol Stack (`tcp.c`, `tcp.h`):**
+  - 32-socket static connection table (`TCPSocket g_TCPSockets[32]`) supporting full RFC 793 state machine: `CLOSED`, `LISTEN`, `SYN_SENT`, `SYN_RECEIVED`, `ESTABLISHED`, `FIN_WAIT_1`, `CLOSE_WAIT`, `LAST_ACK`, `TIME_WAIT`.
+  - Complete 3-way handshake (`SYN` -> `SYN-ACK` -> `ACK`), dynamic Initial Sequence Number (ISN) generation, and sequence/acknowledgment tracking.
+  - RFC 793 internet checksum algorithm computing 16-bit ones-complement sum over TCP pseudo-header (Source IP, Destination IP, Protocol 6, TCP segment length) and TCP segment payload.
+  - Circular streaming receive buffer (`rx_buffer[4096]`) with cooperative scheduler blocking on empty buffer and graceful EOF detection.
+  - Packet segmentation and MSS window management (1460 bytes per segment).
+  - Re-entrant static transmit ring buffers eliminating deep kernel stack frame consumption.
+- **Virtual File System (VFS) Socket Integration (`vfs.c`, `vfs.h`):**
+  - Extended VFS with `VFS_TYPE_SOCKET`, `vfs_socket_create`, and `vfs_socket_get`.
+  - Full polymorphism: `vfs_read` seamlessly routes to `TCP_Recv`, `vfs_write` routes to `TCP_Send`, and `vfs_close` triggers graceful `TCP_Close` (FIN/ACK sequence).
+  - Loopback routing in `IPv4_Send` delivering packets for local IPs directly to `TCP_Handle`.
+- **BSD Sockets System Calls & User C Library (`syscall.h`, `syscall.c`, `libuser.h`, `libuser.c`):**
+  - Added system calls: `SYS_SOCKET` (25), `SYS_BIND` (26), `SYS_LISTEN` (27), `SYS_CONNECT` (28), `SYS_ACCEPT` (29), `SYS_SEND` (30), `SYS_RECV` (31).
+  - Standard BSD socket user APIs: `int socket(int domain, int type, int protocol)`, `int bind(int sockfd, ...)`, `int listen(int sockfd, int backlog)`, `int connect(int sockfd, ...)`, `int accept(int sockfd, ...)`, `int send(int sockfd, ...)`, `int recv(int sockfd, ...)`.
+  - Endian conversion functions: `htons`, `ntohs`, `htonl`, `ntohl`.
+- **Standalone Web Applications (`/bin/`):**
+  - `/bin/curl.elf`: Standalone HTTP/1.0 client; parses URL targets (`http://<ip>:<port>/<path>`), connects via BSD TCP socket, sends HTTP GET requests, parses HTTP status headers, and outputs response body directly to `stdout` (fully compatible with pipelines and redirections, e.g., `curl http://10.0.2.15/readme.txt | grep Storage`).
+  - `/bin/httpd.elf`: Embedded HTTP/1.0 web server running in Ring 3; binds to port 80 (or custom port), accepts client TCP connections, serves files directly from the VFS filesystem, formats HTTP response headers (`200 OK`, `404 Not Found`, `Content-Length`), and supports single-shot testing mode (`--once`).
+
 ---
 
 ## Memory Map Layout

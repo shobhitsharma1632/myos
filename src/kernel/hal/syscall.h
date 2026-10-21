@@ -29,6 +29,39 @@
 #define SYS_PIPE        22  // Create unidirectional pipe (ebx = pipefd[2])
 #define SYS_DUP         23  // Duplicate file descriptor (ebx = oldfd)
 #define SYS_DUP2        24  // Duplicate file descriptor to specific newfd (ebx = oldfd, ecx = newfd)
+#define SYS_SOCKET      25  // Create socket (ebx = domain, ecx = type, edx = protocol)
+#define SYS_BIND        26  // Bind socket (ebx = fd, ecx = sockaddr*, edx = socklen)
+#define SYS_LISTEN      27  // Listen on socket (ebx = fd, ecx = backlog)
+#define SYS_CONNECT     28  // Connect socket (ebx = fd, ecx = sockaddr*, edx = socklen)
+#define SYS_ACCEPT      29  // Accept connection (ebx = fd, ecx = sockaddr*, edx = socklen*)
+#define SYS_SEND        30  // Send on socket (ebx = fd, ecx = buf, edx = len)
+#define SYS_RECV        31  // Receive on socket (ebx = fd, ecx = buf, edx = len)
+
+#define AF_UNSPEC 0
+#define AF_UNIX   1
+#define AF_INET   2
+
+#define SOCK_STREAM 1
+#define SOCK_DGRAM  2
+#define SOCK_RAW    3
+
+typedef uint32_t socklen_t;
+
+struct in_addr {
+    uint32_t s_addr;
+};
+
+struct sockaddr {
+    uint16_t sa_family;
+    char     sa_data[14];
+};
+
+struct sockaddr_in {
+    uint16_t       sin_family;
+    uint16_t       sin_port;
+    struct in_addr sin_addr;
+    char           sin_zero[8];
+};
 
 typedef struct {
     uint8_t  mac[6];

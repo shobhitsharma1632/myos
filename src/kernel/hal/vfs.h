@@ -56,5 +56,9 @@ void vfs_init_task_fds(struct Task* task);
 void vfs_clone_task_fds(struct Task* parent, struct Task* child);
 void vfs_close_task_fds(struct Task* task);
 
+// Socket VFS helpers
+int   vfs_socket_create(void* socket_ptr);
+void* vfs_socket_get(int fd);
+
 // Legacy backward-compatibility wrapper
 int VFS_Write(fd_t file, uint8_t* data, size_t size);
