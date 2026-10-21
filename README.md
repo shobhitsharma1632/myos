@@ -352,6 +352,27 @@
   - `/bin/sysmon.elf`: Real-time system performance monitor with dynamic MLFQ task load meters, physical memory gauges, and uptime clock.
   - `/bin/paint.elf`: Interactive 2D canvas with mouse drag drawing, 8-color swatch palette, and clear button.
 
+### 16. Symmetric Multiprocessing (SMP) & APIC Architecture (Phase 20)
+- **ACPI Hardware Topology Enumeration (`acpi.c`, `acpi.h`):**
+  - RSDP scanning across EBDA (`0x040E`) and BIOS ROM memory window (`0x000E0000`–`0x000FFFFF`).
+  - Traversal and checksum verification of RSDT and MADT (`'APIC'`) tables with dynamic page mapping.
+  - Automatic hardware core enumeration (`MADTRecordLocalAPIC`), Local APIC base (`0xFEE00000`), I/O APIC base (`0xFEC00000`), and Interrupt Source Overrides.
+- **Local APIC & I/O APIC Drivers (`apic.c`, `apic.h`, `ioapic.c`, `ioapic.h`):**
+  - Global hardware APIC enable via MSR `0x1B` (`IA32_APIC_BASE_MSR`, bit 11) and software enable via SVR (bit 8) with spurious vector `0xFF`.
+  - Task Priority Register (`TPR`) clear, End of Interrupt (`EOI`) signaling, and Inter-Processor Interrupt (IPI) transmission (`LAPIC_SendInit`, `LAPIC_SendStartup`, `LAPIC_SendIPI`).
+  - I/O APIC 24-entry Redirection Table management (`IOAPIC_SetEntry`, `IOAPIC_MaskAll`).
+- **Atomic Spinlocks & Concurrency Primitives (`spinlock.c`, `spinlock.h`):**
+  - Atomic compare-and-swap spinlocks (`__atomic_test_and_set`, `__atomic_clear`) with `pause` loop.
+  - Non-blocking `spinlock_try_acquire` and interrupt-safe `spinlock_acquire_irqsave` / `spinlock_release_irqrestore`.
+- **Application Processor (AP) Boot Trampoline (`smp_trampoline.asm`):**
+  - 16-bit real-mode to 32-bit protected-mode trampoline loaded at physical address `0x8000` (Vector `0x08`).
+  - Protected-mode GDT loading (`o32 lgdt`), CR3 page directory loading, paging activation, private 16 KiB AP stack provisioning, and online handshake signaling.
+- **Multi-Core Boot Protocol & User SMP Utility (`smp.c`, `smp.h`, `smpinfo.c`):**
+  - INIT-SIPI-SIPI wake-up protocol booting all AP cores into parallel execution.
+  - System call `SYS_SMP_INFO` (43) returning `smp_info_t` topology.
+  - Standalone Ring 3 utility `/bin/smpinfo.elf` displaying formatted CPU topology report.
+  - Built-in shell command `smp` displaying live APIC and multi-core status.
+
 ---
 
 ## Memory Map Layout

@@ -47,6 +47,21 @@
 #define SYS_GUI_POLL_EVENT  40  // Poll GUI event (ebx = win_id, ecx = gui_event_t*)
 #define SYS_GUI_DAMAGE      41  // Damage / invalidate window rect (ebx = win_id, ecx = (x << 16)|y, edx = (w << 16)|h)
 #define SYS_GUI_MAP_BUFFER  42  // Get user-accessible backbuffer pointer (ebx = win_id)
+#define SYS_SMP_INFO        43  // Get multi-core SMP topology (ebx = smp_info_t* ptr)
+
+#ifndef _SMP_INFO_T_DEFINED
+#define _SMP_INFO_T_DEFINED
+typedef struct {
+    uint32_t total_cpus;
+    uint32_t online_cpus;
+    struct {
+        uint32_t cpu_id;
+        uint32_t lapic_id;
+        uint32_t is_bsp;
+        uint32_t online;
+    } cpus[16];
+} smp_info_t;
+#endif
 
 #ifndef _GUI_EVENT_T_DEFINED
 #define _GUI_EVENT_T_DEFINED

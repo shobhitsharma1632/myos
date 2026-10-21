@@ -296,3 +296,22 @@ int   sys_gui_destroy_win(int win_id);
 int   sys_gui_poll_event(int win_id, gui_event_t* ev);
 int   sys_gui_damage(int win_id, int x, int y, int w, int h);
 void* sys_gui_map_buffer(int win_id);
+
+// SMP Multi-Core Topology
+#define SYS_SMP_INFO 43
+
+#ifndef _SMP_INFO_T_DEFINED
+#define _SMP_INFO_T_DEFINED
+typedef struct {
+    uint32_t total_cpus;
+    uint32_t online_cpus;
+    struct {
+        uint32_t cpu_id;
+        uint32_t lapic_id;
+        uint32_t is_bsp;
+        uint32_t online;
+    } cpus[16];
+} smp_info_t;
+#endif
+
+int sys_smp_info(smp_info_t* info);

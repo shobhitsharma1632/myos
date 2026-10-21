@@ -796,8 +796,15 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list args)
         p++; // skip '%'
         if (*p == '\0') break;
 
+        bool left_align = false;
+        if (*p == '-')
+        {
+            left_align = true;
+            p++;
+        }
+
         bool pad_zero = false;
-        if (*p == '0')
+        if (*p == '0' && !left_align)
         {
             pad_zero = true;
             p++;
@@ -821,12 +828,31 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list args)
             {
                 const char* s = va_arg(args, const char*);
                 if (!s) s = "(null)";
+                int len = (int)strlen(s);
+                if (!left_align)
+                {
+                    while (len < width)
+                    {
+                        if (str && written + 1 < size) str[written] = ' ';
+                        written++;
+                        width--;
+                    }
+                }
                 while (*s)
                 {
                     if (str && written + 1 < size)
                         str[written] = *s;
                     written++;
                     s++;
+                }
+                if (left_align)
+                {
+                    while (len < width)
+                    {
+                        if (str && written + 1 < size) str[written] = ' ';
+                        written++;
+                        width--;
+                    }
                 }
                 break;
             }
@@ -836,19 +862,31 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list args)
                 int val = va_arg(args, int);
                 itoa(val, num_buf, 10);
                 int len = (int)strlen(num_buf);
-                while (len < width)
+                if (!left_align)
                 {
-                    char pad = pad_zero ? '0' : ' ';
-                    if (str && written + 1 < size)
-                        str[written] = pad;
-                    written++;
-                    width--;
+                    while (len < width)
+                    {
+                        char pad = pad_zero ? '0' : ' ';
+                        if (str && written + 1 < size)
+                            str[written] = pad;
+                        written++;
+                        width--;
+                    }
                 }
                 for (char* n = num_buf; *n; n++)
                 {
                     if (str && written + 1 < size)
                         str[written] = *n;
                     written++;
+                }
+                if (left_align)
+                {
+                    while (len < width)
+                    {
+                        if (str && written + 1 < size) str[written] = ' ';
+                        written++;
+                        width--;
+                    }
                 }
                 break;
             }
@@ -857,19 +895,31 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list args)
                 unsigned int val = va_arg(args, unsigned int);
                 itoa((int)val, num_buf, 10);
                 int len = (int)strlen(num_buf);
-                while (len < width)
+                if (!left_align)
                 {
-                    char pad = pad_zero ? '0' : ' ';
-                    if (str && written + 1 < size)
-                        str[written] = pad;
-                    written++;
-                    width--;
+                    while (len < width)
+                    {
+                        char pad = pad_zero ? '0' : ' ';
+                        if (str && written + 1 < size)
+                            str[written] = pad;
+                        written++;
+                        width--;
+                    }
                 }
                 for (char* n = num_buf; *n; n++)
                 {
                     if (str && written + 1 < size)
                         str[written] = *n;
                     written++;
+                }
+                if (left_align)
+                {
+                    while (len < width)
+                    {
+                        if (str && written + 1 < size) str[written] = ' ';
+                        written++;
+                        width--;
+                    }
                 }
                 break;
             }
@@ -1372,6 +1422,18 @@ void* sys_gui_map_buffer(int win_id)
         "int $0x80"
         : "=a"(ret)
         : "a"(SYS_GUI_MAP_BUFFER), "b"(win_id)
+        : "memory"
+    );
+    return ret;
+}
+
+int sys_smp_info(smp_info_t* info)
+{
+    int ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(SYS_SMP_INFO), "b"(info)
         : "memory"
     );
     return ret;

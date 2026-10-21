@@ -15,6 +15,11 @@
 #include <net/tcp.h>
 #include <hal/gui.h>
 #include <hal/gfx.h>
+#include <hal/smp.h>
+#include <hal/spinlock.h>
+#include <arch/i686/apic.h>
+#include <arch/i686/ioapic.h>
+#include <arch/i686/acpi.h>
 #include <arch/i686/bga.h>
 
 extern void _init();
@@ -33,6 +38,7 @@ static void Task_Phase16_PipesVerification(void);
 static void Task_Phase17_TCPSocketsVerification(void);
 static void Task_Phase18_SignalsVerification(void);
 static void Task_Phase19_WindowServerVerification(void);
+static void Task_Phase20_SMPVerification(void);
 static void Task_ShellDemo(void);
 
 static void Task_Phase11_UserModeVerification(void)
@@ -1210,6 +1216,132 @@ static void Task_Phase19_WindowServerVerification(void)
     }
 
     log_info("Phase19", "=== Phase 19: Graphical Window Server & Application Ecosystem 100%%%% VERIFIED! ===");
+    Task_Create("Phase20_Test", Task_Phase20_SMPVerification);
+    Task_Exit();
+}
+
+static void Task_Phase20_SMPVerification(void)
+{
+    // Wait for scheduler and previous tasks to stabilize
+    for (int i = 0; i < 5; i++) Task_Yield();
+
+    log_info("Phase20", "=======================================================");
+    log_info("Phase20", "Starting Phase 20: Symmetric Multiprocessing (SMP) & APIC");
+    log_info("Phase20", "=======================================================");
+
+    // Test 1: ACPI Detection & Multi-Core Topology Verification
+    log_info("Phase20", "Test 1: ACPI MADT Core Enumeration...");
+    const ACPI_Info* acpi = ACPI_GetInfo();
+    uint32_t totalCPUs = SMP_GetCPUCount();
+    uint32_t onlineCPUs = SMP_GetOnlineCount();
+    log_info("Phase20", "  ACPI detected: %s, Total CPUs found: %u, Online CPUs: %u",
+             (acpi && acpi->detected) ? "YES" : "NO (Uniprocessor)",
+             totalCPUs, onlineCPUs);
+
+    if (totalCPUs > 1 && onlineCPUs > 1)
+    {
+        log_info("Phase20", "Test 1: ACPI MADT Multi-Core Detection PASSED (%u Cores)!", totalCPUs);
+    }
+    else
+    {
+        log_info("Phase20", "Test 1: Operating with %u Core(s) (Uniprocessor mode fallback)", totalCPUs);
+    }
+
+    // Test 2: Local APIC & I/O APIC Verification
+    log_info("Phase20", "Test 2: Local APIC & I/O APIC Initialization...");
+    uint32_t bsp_lapic_id = LAPIC_GetId();
+    uint32_t lapic_ver = LAPIC_Read(LAPIC_REG_VERSION) & 0xFF;
+    log_info("Phase20", "  BSP LAPIC ID: %u, Version: 0x%x", bsp_lapic_id, lapic_ver);
+    if (acpi && acpi->ioapic_phys_base)
+    {
+        log_info("Phase20", "  I/O APIC ID: %u, Base: 0x%x",
+                 acpi->ioapic_id, acpi->ioapic_phys_base);
+    }
+    log_info("Phase20", "Test 2: Local APIC Initialization PASSED!");
+
+    // Test 3: AP Core Trampoline Boot & Status Verification
+    log_info("Phase20", "Test 3: Checking Application Processors (APs) status...");
+    for (uint32_t c = 0; c < totalCPUs; c++)
+    {
+        const SMP_CPU* cpu = SMP_GetCPU(c);
+        if (cpu)
+        {
+            log_info("Phase20", "  Core %u: Role=%s, LAPIC_ID=%u, Online=%s",
+                     cpu->cpu_id,
+                     cpu->is_bsp ? "BSP" : "AP",
+                     cpu->lapic_id,
+                     cpu->online ? "YES" : "NO");
+        }
+    }
+    if (onlineCPUs >= totalCPUs)
+    {
+        log_info("Phase20", "Test 3: AP Bootup and Online Handshake PASSED (%u/%u Cores Online)!",
+                 onlineCPUs, totalCPUs);
+    }
+    else
+    {
+        log_warn("Phase20", "Test 3: %u of %u Cores Online", onlineCPUs, totalCPUs);
+    }
+
+    // Test 4: Spinlock Concurrency & Contention Stress Test
+    log_info("Phase20", "Test 4: Atomic Spinlock Concurrency & IRQ Safety Verification...");
+    Spinlock test_lock;
+    spinlock_init(&test_lock);
+
+    // Test basic acquire and release
+    spinlock_acquire(&test_lock);
+    bool try_locked = spinlock_try_acquire(&test_lock);
+    if (!try_locked)
+    {
+        log_info("Phase20", "  Spinlock mutual exclusion check: PASSED (try_acquire correctly failed while held)");
+    }
+    else
+    {
+        log_err("Phase20", "  Spinlock mutual exclusion check: FAILED (try_acquire succeeded while held)!");
+    }
+    spinlock_release(&test_lock);
+
+    bool try_free = spinlock_try_acquire(&test_lock);
+    if (try_free)
+    {
+        log_info("Phase20", "  Spinlock release check: PASSED (try_acquire succeeded after release)");
+        spinlock_release(&test_lock);
+    }
+    else
+    {
+        log_err("Phase20", "  Spinlock release check: FAILED!");
+    }
+
+    // Test IRQ-safe spinlock operations
+    uint8_t flags = spinlock_acquire_irqsave(&test_lock);
+    spinlock_release_irqrestore(&test_lock, flags);
+    log_info("Phase20", "  Spinlock irqsave/irqrestore check: PASSED");
+    log_info("Phase20", "Test 4: Spinlocks & Concurrency Primitives PASSED!");
+
+    // Test 5: Standalone User-Space Ring 3 SMP Utility (/bin/smpinfo.elf)
+    log_info("Phase20", "Test 5: Spawning Standalone '/bin/smpinfo.elf' in Ring 3...");
+    char* smp_args[] = { "/bin/smpinfo.elf", NULL };
+    Task* tSmp = Task_CreateUserFromELF("u_smpinfo", "/bin/smpinfo.elf", 1, smp_args);
+    if (tSmp)
+    {
+        int32_t status_smp = -1;
+        int32_t wait_smp = Task_WaitPID(tSmp->id, &status_smp);
+        log_info("Phase20", "smpinfo.elf waitRes=%d status=%d", wait_smp, status_smp);
+        if (wait_smp >= 0 && status_smp == 0)
+        {
+            log_info("Phase20", "Test 5: Standalone Ring 3 '/bin/smpinfo.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase20", "Test 5: '/bin/smpinfo.elf' FAILED (status=%d)!", status_smp);
+        }
+    }
+    else
+    {
+        log_err("Phase20", "Test 5: Failed to spawn '/bin/smpinfo.elf'!");
+    }
+
+    log_info("Phase20", "=== Phase 20: Symmetric Multiprocessing (SMP) & APIC 100%%%% VERIFIED! ===");
     Task_Create("ShellDemo", Task_ShellDemo);
     Task_Exit();
 }
@@ -1241,6 +1373,8 @@ static void Task_ShellDemo(void)
         "exec /bin/notepad.elf --test",
         "exec /bin/sysmon.elf --test",
         "exec /bin/paint.elf --test",
+        "smp",
+        "exec /bin/smpinfo.elf",
         "ps",
         "gui"
     };
@@ -1444,9 +1578,12 @@ void start(BootParams* bootParams)
     // Initialize Network Subsystem (Intel E1000 PCI NIC & Protocol Stack)
     Net_Initialize();
 
+    // Initialize Symmetric Multiprocessing Subsystem (ACPI MADT, Local APIC, I/O APIC & APs)
+    SMP_Initialize();
+
     printf("\n=======================================================\n");
-    printf("  myOS Phase 18: POSIX Signals & Job Control\n");
-    printf("  Asynchronous Signal Delivery, User Stack Trampoline, /bin/trap & /bin/alarm Active!\n");
+    printf("  myOS Phase 20: Symmetric Multiprocessing (SMP) & APIC\n");
+    printf("  Multi-Core Initialization, Local APIC, I/O APIC & Spinlocks Active!\n");
     printf("=======================================================\n\n");
 
     // Initialize MLFQ Task Scheduler

@@ -7,6 +7,7 @@
 #include <hal/pmm.h>
 #include <hal/vfs.h>
 #include <hal/gui.h>
+#include <hal/smp.h>
 #include <net/net.h>
 #include <net/icmp.h>
 #include <net/udp.h>
@@ -825,6 +826,35 @@ void Syscall_Handler(Registers* regs)
             {
                 regs->eax = 0;
             }
+            break;
+        }
+
+        case SYS_SMP_INFO:
+        {
+            smp_info_t* u_info = (smp_info_t*)arg1;
+            if (!u_info)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            smp_info_t k_info;
+            memset(&k_info, 0, sizeof(smp_info_t));
+            k_info.total_cpus = SMP_GetCPUCount();
+            k_info.online_cpus = SMP_GetOnlineCount();
+            for (uint32_t i = 0; i < k_info.total_cpus && i < 16; i++)
+            {
+                const SMP_CPU* cpu = SMP_GetCPU(i);
+                if (cpu)
+                {
+                    k_info.cpus[i].cpu_id = cpu->cpu_id;
+                    k_info.cpus[i].lapic_id = cpu->lapic_id;
+                    k_info.cpus[i].is_bsp = cpu->is_bsp ? 1 : 0;
+                    k_info.cpus[i].online = cpu->online ? 1 : 0;
+                }
+            }
+            memcpy(u_info, &k_info, sizeof(smp_info_t));
+            regs->eax = 0;
             break;
         }
 

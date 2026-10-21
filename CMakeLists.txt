@@ -58,6 +58,7 @@ if(MKFS_FAT_EXECUTABLE AND MCOPY_EXECUTABLE AND MMD_EXECUTABLE AND DD_EXECUTABLE
         COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/notepad.elf" "::bin/notepad.elf"
         COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/sysmon.elf" "::bin/sysmon.elf"
         COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/paint.elf" "::bin/paint.elf"
+        COMMAND ${MCOPY_EXECUTABLE} -i ${FLOPPY_IMAGE} "${CMAKE_CURRENT_BINARY_DIR}/src/user/smpinfo.elf" "::bin/smpinfo.elf"
         COMMAND ${PYTHON3_EXECUTABLE} ${INSTALL_BOOTLOADER_PY} ${FLOPPY_IMAGE} ${BOOTLOADER_STAGE1_BIN} ${BOOTLOADER_STAGE1_MAP} ${BOOTLOADER_STAGE2_BIN} 0
         DEPENDS bootloader_stage1 bootloader_stage2 kernel user_apps
         COMMENT "Creating floppy image with patched bootloader and sample files"
@@ -66,7 +67,7 @@ if(MKFS_FAT_EXECUTABLE AND MCOPY_EXECUTABLE AND MMD_EXECUTABLE AND DD_EXECUTABLE
     find_program(QEMU_I386_EXECUTABLE NAMES qemu-system-i386)
     if(QEMU_I386_EXECUTABLE)
         add_custom_target(run
-            COMMAND ${QEMU_I386_EXECUTABLE} -drive file=${FLOPPY_IMAGE},format=raw,if=ide -netdev user,id=net0 -device e1000,netdev=net0 -display none -debugcon stdio
+            COMMAND ${QEMU_I386_EXECUTABLE} -drive file=${FLOPPY_IMAGE},format=raw,if=ide -smp 4 -netdev user,id=net0 -device e1000,netdev=net0 -display none -debugcon stdio
             DEPENDS floppy_image
             COMMENT "Running OS in QEMU..."
         )

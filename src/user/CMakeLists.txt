@@ -77,6 +77,7 @@ build_user_app(trap)
 build_user_app(notepad)
 build_user_app(sysmon)
 build_user_app(paint)
+build_user_app(smpinfo)
 
 set(ALL_USER_ELFS ${ALL_USER_ELFS} PARENT_SCOPE)
 add_custom_target(user_apps ALL DEPENDS ${ALL_USER_ELFS})
