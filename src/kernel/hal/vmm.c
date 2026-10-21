@@ -1,12 +1,15 @@
 #include "vmm.h"
 #include "pmm.h"
 #include "memory.h"
+#include "spinlock.h"
+#include "smp.h"
 #include <debug.h>
 #include <arch/i686/isr.h>
 #include <arch/i686/io.h>
 #include <stdio.h>
 
 static uint32_t* g_KernelPageDirectory = NULL;
+static Spinlock  g_VmmLock = SPINLOCK_INIT;
 
 #include <hal/task.h>
 
@@ -146,7 +149,7 @@ uint32_t* VMM_GetKernelPageDirectory(void)
     return g_KernelPageDirectory;
 }
 
-bool VMM_MapPage(void* virtAddr, void* physAddr, uint32_t flags)
+static bool vmm_map_page_internal(void* virtAddr, void* physAddr, uint32_t flags)
 {
     uint32_t vaddr = (uint32_t)virtAddr;
     uint32_t paddr = (uint32_t)physAddr;
@@ -202,12 +205,20 @@ bool VMM_MapPage(void* virtAddr, void* physAddr, uint32_t flags)
     uint32_t pte_val = (paddr & ~0xFFF) | (flags & 0xFFF) | PAGE_PRESENT;
     VMM_PAGE_TABLE_VIRT(pde_index)[pte_index] = pte_val;
 
-    // Invalidate the TLB entry for this virtual address
+    // Invalidate the TLB entry for this virtual address locally
     i686_VMM_FlushTLB(vaddr);
     return true;
 }
 
-void VMM_UnmapPage(void* virtAddr)
+bool VMM_MapPage(void* virtAddr, void* physAddr, uint32_t flags)
+{
+    uint8_t irq = spinlock_acquire_irqsave(&g_VmmLock);
+    bool res = vmm_map_page_internal(virtAddr, physAddr, flags);
+    spinlock_release_irqrestore(&g_VmmLock, irq);
+    return res;
+}
+
+static void vmm_unmap_page_internal(void* virtAddr)
 {
     uint32_t vaddr = (uint32_t)virtAddr;
     if (vaddr & 0xFFF)
@@ -227,10 +238,19 @@ void VMM_UnmapPage(void* virtAddr)
 
     VMM_PAGE_TABLE_VIRT(pde_index)[pte_index] = 0;
     i686_VMM_FlushTLB(vaddr);
+    SMP_BroadcastTLBShootdown(vaddr);
+}
+
+void VMM_UnmapPage(void* virtAddr)
+{
+    uint8_t irq = spinlock_acquire_irqsave(&g_VmmLock);
+    vmm_unmap_page_internal(virtAddr);
+    spinlock_release_irqrestore(&g_VmmLock, irq);
 }
 
 bool VMM_GetPhysicalAddress(void* virtAddr, void** outPhysAddr)
 {
+    uint8_t irq = spinlock_acquire_irqsave(&g_VmmLock);
     uint32_t vaddr = (uint32_t)virtAddr;
     uint32_t pde_index = (vaddr >> 22) & 0x3FF;
     uint32_t pte_index = (vaddr >> 12) & 0x3FF;
@@ -240,19 +260,27 @@ bool VMM_GetPhysicalAddress(void* virtAddr, void** outPhysAddr)
     {
         if (outPhysAddr)
             *outPhysAddr = virtAddr;
+        spinlock_release_irqrestore(&g_VmmLock, irq);
         return true;
     }
 
     if (!(VMM_PAGE_DIRECTORY_VIRT[pde_index] & PAGE_PRESENT))
+    {
+        spinlock_release_irqrestore(&g_VmmLock, irq);
         return false;
+    }
 
     uint32_t pte = VMM_PAGE_TABLE_VIRT(pde_index)[pte_index];
     if (!(pte & PAGE_PRESENT))
+    {
+        spinlock_release_irqrestore(&g_VmmLock, irq);
         return false;
+    }
 
     if (outPhysAddr)
         *outPhysAddr = (void*)((pte & ~0xFFF) | offset);
 
+    spinlock_release_irqrestore(&g_VmmLock, irq);
     return true;
 }
 

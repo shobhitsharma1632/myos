@@ -34,5 +34,8 @@ typedef struct {
 
 // Public TSS Subsystem API
 void TSS_Initialize(uint16_t kernelDataSegment);
+void TSS_InitializeAP(uint32_t cpu_id, uint16_t kernelDataSegment);
+void TSS_SetKernelStackForCPU(uint32_t cpu_id, uint32_t esp0);
+uint32_t TSS_GetKernelStackForCPU(uint32_t cpu_id);
 void TSS_SetKernelStack(uint32_t esp0);
 uint32_t TSS_GetKernelStack(void);

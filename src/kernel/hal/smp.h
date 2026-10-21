@@ -23,3 +23,7 @@ uint32_t       SMP_GetCurrentCPUID(void);
 const SMP_CPU* SMP_GetCPU(uint32_t index);
 void           SMP_DumpStatus(void);
 void           SMP_APEntry(void);
+void           SMP_SendRescheduleIPI(uint32_t target_cpu_id);
+void           SMP_BroadcastRescheduleIPI(void);
+void           SMP_BroadcastTLBShootdown(uint32_t virt_addr);
+void           SMP_TLBShootdownHandler(uint32_t virt_addr);

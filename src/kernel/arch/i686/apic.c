@@ -7,7 +7,7 @@
 #define IA32_APIC_BASE_MSR 0x1B
 #define IA32_APIC_BASE_MSR_ENABLE 0x800
 
-static volatile uint32_t* g_LAPIC = (volatile uint32_t*)LAPIC_DEFAULT_PHYS_BASE;
+static volatile uint32_t* g_LAPIC = NULL;
 
 static inline void cpu_get_msr(uint32_t msr, uint32_t* lo, uint32_t* hi)
 {
@@ -21,11 +21,13 @@ static inline void cpu_set_msr(uint32_t msr, uint32_t lo, uint32_t hi)
 
 uint32_t LAPIC_Read(uint32_t reg)
 {
+    if (!g_LAPIC) return 0;
     return g_LAPIC[reg / 4];
 }
 
 void LAPIC_Write(uint32_t reg, uint32_t val)
 {
+    if (!g_LAPIC) return;
     g_LAPIC[reg / 4] = val;
 }
 
@@ -92,6 +94,19 @@ void LAPIC_SendIPI(uint8_t target_apic_id, uint32_t icr_low)
     LAPIC_Write(LAPIC_REG_ICR_HIGH, (uint32_t)target_apic_id << 24);
 
     // Trigger IPI via ICR Low
+    LAPIC_Write(LAPIC_REG_ICR_LOW, icr_low);
+}
+
+void LAPIC_SendIPIBroadcast(uint8_t vector)
+{
+    while (LAPIC_Read(LAPIC_REG_ICR_LOW) & LAPIC_ICR_BUSY)
+    {
+        __asm__ volatile("pause");
+    }
+
+    // Destination shorthand: bits 18-19 = 11b (All excluding self) -> (3 << 18) = 0x000C0000
+    // Delivery mode: Fixed (0x00000000), Edge triggered
+    uint32_t icr_low = (3 << 18) | (uint32_t)vector;
     LAPIC_Write(LAPIC_REG_ICR_LOW, icr_low);
 }
 

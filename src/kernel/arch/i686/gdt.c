@@ -66,7 +66,9 @@ typedef enum
     GDT_BASE_HIGH(base)                                             \
 }
 
-GDTEntry g_GDT[] = {
+#define GDT_TOTAL_ENTRIES (5 + 16)
+
+GDTEntry g_GDT[GDT_TOTAL_ENTRIES] = {
     // 0x00: NULL descriptor
     GDT_ENTRY(0, 0, 0, 0),
 
@@ -94,8 +96,23 @@ GDTEntry g_GDT[] = {
               GDT_ACCESS_PRESENT | GDT_ACCESS_RING3 | GDT_ACCESS_DATA_SEGMENT | GDT_ACCESS_DATA_WRITEABLE,
               GDT_FLAG_32BIT | GDT_FLAG_GRANULARITY_4K),
 
-    // 0x28: TSS descriptor (initialized dynamically in TSS_Initialize)
-    GDT_ENTRY(0, 0, 0, 0),
+    // 0x28..: TSS descriptors for CPUs 0..15 (initialized dynamically in TSS_InitializeAP)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 0 (0x28)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 1 (0x30)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 2 (0x38)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 3 (0x40)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 4 (0x48)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 5 (0x50)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 6 (0x58)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 7 (0x60)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 8 (0x68)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 9 (0x70)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 10 (0x78)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 11 (0x80)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 12 (0x88)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 13 (0x90)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 14 (0x98)
+    GDT_ENTRY(0, 0, 0, 0), // CPU 15 (0xA0)
 };
 
 GDTDescriptor g_GDTDescriptor = { sizeof(g_GDT) - 1, g_GDT};

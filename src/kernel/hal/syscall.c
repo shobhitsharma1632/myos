@@ -18,22 +18,28 @@
 #include <memory.h>
 #include <debug.h>
 
+#include <hal/smp.h>
+
 #define MODULE "Syscall"
 
 extern void __attribute((cdecl)) i686_ISR128(void);
 
-static bool g_SyscallYieldRequested = false;
+#define MAX_SYSCALL_CPUS 16
+static bool g_SyscallYieldRequested[MAX_SYSCALL_CPUS];
 
 void Syscall_RequestYield(void)
 {
-    g_SyscallYieldRequested = true;
+    uint32_t cpu = SMP_GetCurrentCPUID();
+    if (cpu < MAX_SYSCALL_CPUS)
+        g_SyscallYieldRequested[cpu] = true;
 }
 
 bool Syscall_TakeYieldRequest(void)
 {
-    if (g_SyscallYieldRequested)
+    uint32_t cpu = SMP_GetCurrentCPUID();
+    if (cpu < MAX_SYSCALL_CPUS && g_SyscallYieldRequested[cpu])
     {
-        g_SyscallYieldRequested = false;
+        g_SyscallYieldRequested[cpu] = false;
         return true;
     }
     return false;

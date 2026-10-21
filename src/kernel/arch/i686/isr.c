@@ -44,6 +44,8 @@ static const char* const g_Exceptions[] = {
 };
 
 #include <hal/syscall.h>
+#include <hal/smp.h>
+#include <arch/i686/apic.h>
 #include <debug.h>
 
 void i686_ISR_InitializeGates();
@@ -61,7 +63,17 @@ Registers* __attribute__((cdecl)) i686_ISR_Handler(Registers* regs)
         g_ISRHandlers[regs->interrupt](regs);
     else if (regs->interrupt >= 32)
     {
-        if (regs->interrupt != 129 && regs->interrupt != 128)
+        if (regs->interrupt == SMP_IPI_RESCHEDULE_VECTOR)
+        {
+            LAPIC_EOI();
+        }
+        else if (regs->interrupt == SMP_IPI_TLB_SHOOTDOWN_VECTOR)
+        {
+            SMP_TLBShootdownHandler(0);
+            LAPIC_EOI();
+            return regs;
+        }
+        else if (regs->interrupt != 129 && regs->interrupt != 128)
             printf("Unhandled interrupt %d!\n", regs->interrupt);
     }
     else
@@ -112,7 +124,9 @@ Registers* __attribute__((cdecl)) i686_ISR_Handler(Registers* regs)
     }
 
     Registers* ret_regs = regs;
-    if (Task_IsActive() && (regs->interrupt == 32 || regs->interrupt == 129 || Syscall_TakeYieldRequest()))
+    if (Task_IsActive() && (regs->interrupt == 32 || regs->interrupt == 129 ||
+                            regs->interrupt == SMP_IPI_RESCHEDULE_VECTOR ||
+                            Syscall_TakeYieldRequest()))
     {
         ret_regs = Task_Schedule(regs);
     }

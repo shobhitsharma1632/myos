@@ -1,6 +1,7 @@
 #include "heap.h"
 #include "vmm.h"
 #include "pmm.h"
+#include "spinlock.h"
 #include "memory.h"
 #include <debug.h>
 #include <stdio.h>
@@ -10,6 +11,7 @@ static uint32_t     g_HeapVirtualEnd = KERNEL_HEAP_START;
 static size_t       g_HeapTotalBytes = 0;
 static size_t       g_HeapUsedBytes = 0;
 static size_t       g_HeapFreeBytes = 0;
+static Spinlock     g_HeapLock = SPINLOCK_INIT;
 
 static bool kheap_expand(size_t required_bytes)
 {
@@ -103,7 +105,7 @@ void KHeap_Initialize(void)
              (uint32_t)(g_HeapFreeBytes / 1024), (uint32_t)g_HeapUsedBytes);
 }
 
-void* kmalloc(size_t size)
+static void* kmalloc_internal(size_t size)
 {
     if (size == 0)
         return NULL;
@@ -158,14 +160,22 @@ void* kmalloc(size_t size)
     size_t needed = size + sizeof(BlockHeader);
     if (kheap_expand(needed))
     {
-        return kmalloc(size);
+        return kmalloc_internal(size);
     }
 
     log_err("Heap", "kmalloc: Out of memory! Failed to allocate %u bytes", (uint32_t)size);
     return NULL;
 }
 
-void kfree(void* ptr)
+void* kmalloc(size_t size)
+{
+    uint8_t flags = spinlock_acquire_irqsave(&g_HeapLock);
+    void* ptr = kmalloc_internal(size);
+    spinlock_release_irqrestore(&g_HeapLock, flags);
+    return ptr;
+}
+
+static void kfree_internal(void* ptr)
 {
     if (!ptr)
         return;
@@ -212,6 +222,13 @@ void kfree(void* ptr)
     }
 }
 
+void kfree(void* ptr)
+{
+    uint8_t flags = spinlock_acquire_irqsave(&g_HeapLock);
+    kfree_internal(ptr);
+    spinlock_release_irqrestore(&g_HeapLock, flags);
+}
+
 void* kzalloc(size_t size)
 {
     void* ptr = kmalloc(size);
@@ -220,14 +237,14 @@ void* kzalloc(size_t size)
     return ptr;
 }
 
-void* krealloc(void* ptr, size_t new_size)
+static void* krealloc_internal(void* ptr, size_t new_size)
 {
     if (!ptr)
-        return kmalloc(new_size);
+        return kmalloc_internal(new_size);
 
     if (new_size == 0)
     {
-        kfree(ptr);
+        kfree_internal(ptr);
         return NULL;
     }
 
@@ -242,13 +259,21 @@ void* krealloc(void* ptr, size_t new_size)
     if (new_size <= block->size)
         return ptr;
 
-    void* new_ptr = kmalloc(new_size);
+    void* new_ptr = kmalloc_internal(new_size);
     if (!new_ptr)
         return NULL;
 
     memcpy(new_ptr, ptr, block->size);
-    kfree(ptr);
+    kfree_internal(ptr);
     return new_ptr;
+}
+
+void* krealloc(void* ptr, size_t new_size)
+{
+    uint8_t flags = spinlock_acquire_irqsave(&g_HeapLock);
+    void* res = krealloc_internal(ptr, new_size);
+    spinlock_release_irqrestore(&g_HeapLock, flags);
+    return res;
 }
 
 size_t KHeap_GetTotalMemory(void)

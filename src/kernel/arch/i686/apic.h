@@ -50,6 +50,10 @@
 #define LAPIC_ICR_EDGE          0x00000000
 #define LAPIC_ICR_LEVEL         0x00008000
 
+// SMP Inter-Processor Interrupt Vectors
+#define SMP_IPI_RESCHEDULE_VECTOR       0xFA // Vector 250
+#define SMP_IPI_TLB_SHOOTDOWN_VECTOR     0xFB // Vector 251
+
 bool     LAPIC_Initialize(uint32_t lapic_phys_base);
 void     LAPIC_Enable(void);
 uint32_t LAPIC_GetId(void);
@@ -57,5 +61,6 @@ uint32_t LAPIC_Read(uint32_t reg);
 void     LAPIC_Write(uint32_t reg, uint32_t val);
 void     LAPIC_EOI(void);
 void     LAPIC_SendIPI(uint8_t target_apic_id, uint32_t icr_low);
+void     LAPIC_SendIPIBroadcast(uint8_t vector);
 void     LAPIC_SendInit(uint8_t target_apic_id);
 void     LAPIC_SendStartup(uint8_t target_apic_id, uint8_t page_vector);

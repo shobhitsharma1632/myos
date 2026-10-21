@@ -396,6 +396,26 @@
   - `/bin/doom.elf`: 3D raycasting first-person shooter engine with distance-shaded walls, floor, and ceiling, 3 distinct maps (E1M1: Hangar, E1M2: Nuclear Plant, E1M3: Phobos Anomaly), 3 enemy types (Zombieman, Imp, Pinky Demon) with AI state machine (IDLE, CHASE, ATTACK, HURT, DEAD), multiple weapons (Pistol, Shotgun), animated Doomguy status bar with dynamic facial expressions, SB16 sound effects for weapon firing, monster deaths, and level progression, and automated `--test` mode.
   - Shell `sound` command displaying DSP version, I/O ports, IRQ, and DMA channel status.
 
+### 18. Multi-Core SMP Parallel Scheduler & Work Stealing (Phase 22)
+- **Per-CPU Task State Segment (TSS) & GDT Expansion (`gdt.c`, `gdt.h`, `tss.c`, `tss.h`):**
+  - Expanded GDT entries to 21 (`5 + MAX_CPUS`), allocating dedicated TSS descriptors (`0x28`, `0x30`, `0x38`, `0x40`) for all cores.
+  - Per-core Task Register (`TR`) loaded dynamically during AP bootup via `TSS_InitializeAP` and `i686_LTR`.
+  - Independent per-CPU `TSS.esp0` kernel stack tracking (`TSS_SetKernelStackForCPU`) guaranteeing safe Ring 3 `int 0x80` privilege transitions on any core.
+- **SMP Memory Safety & Inter-Processor Interrupts (`heap.c`, `pmm.c`, `vmm.c`, `apic.c`, `isr.c`):**
+  - Thread-safe memory allocation protected by atomic IRQ-save spinlocks (`g_HeapLock`, `g_PmmLock`, `g_VmmLock`).
+  - Broadcast TLB Shootdown via Local APIC IPI Vector `0xFB` (251) maintaining global page directory/table consistency.
+  - Reschedule IPI Vector `0xFA` (250) broadcast by BSP at 100 Hz timer tick and upon dispatching tasks to remote cores.
+- **Per-CPU Runqueues & Multi-Core MLFQ Scheduling (`task.c`, `task.h`):**
+  - Converted uniprocessor scheduler into per-CPU `SMP_RunQueue g_PerCPU[MAX_SMP_CPUS]` with independent locks and 3-level priority queues (Interactive, Medium, Batch).
+  - Dedicated per-core idle tasks (`idle-0`, `idle-1`, `idle-2`, `idle-3`) putting cores into low-power halt state (`hlt`) with interrupts enabled when local queues are empty.
+  - Least-loaded core selection (`Task_SelectLeastLoadedCPU`) and CPU affinity bitmask masks (`cpu_affinity`).
+- **Non-Blocking Work-Stealing Algorithm:**
+  - Idle cores execute `Task_StealWork`, performing non-blocking lock attempts (`spinlock_try_acquire`) on neighboring cores' runqueues and stealing runnable tasks from the tail of non-empty MLFQ queues.
+  - Detailed telemetry tracking `tasks_stolen_from_others` and `tasks_stolen_by_others`.
+- **SMP-Safe Deferred Reaper & Diagnostics:**
+  - Deferred task reaper safely eliminates the suicide paradox by preventing stack deallocation while the CPU is still executing on the dying task's stack.
+  - Upgraded shell `smp` and `ps` diagnostics displaying per-core runqueue depths, task execution counts, and work-stealing statistics.
+
 ---
 
 ## Memory Map Layout

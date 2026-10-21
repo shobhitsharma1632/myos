@@ -18,6 +18,7 @@ extern uint8_t smp_trampoline_end[];
 static SMP_CPU  g_Cpus[MAX_CPUS];
 static uint32_t g_TotalCPUs = 1;
 static uint32_t g_OnlineCount = 1;
+static bool     g_SMPInitialized = false;
 
 static void SMP_DelayUs(uint32_t us)
 {
@@ -35,6 +36,12 @@ static void SMP_DelayMs(uint32_t ms)
     }
 }
 
+#include <arch/i686/gdt.h>
+#include <arch/i686/tss.h>
+#include <hal/task.h>
+
+extern volatile bool g_SMP_SchedulerReady;
+
 void SMP_APEntry(void)
 {
     // 1. Initialize IDT for this Application Processor
@@ -43,15 +50,24 @@ void SMP_APEntry(void)
     // 2. Enable this Application Processor's Local APIC
     LAPIC_Enable();
 
+    uint32_t cpu_id = SMP_GetCurrentCPUID();
     uint32_t lapic_id = LAPIC_GetId();
-    log_info(MODULE, "Hello from AP Core! (LAPIC ID %u online, running on dedicated kernel stack)",
-             lapic_id);
+    log_info(MODULE, "Hello from AP Core %u! (LAPIC ID %u online)", cpu_id, lapic_id);
 
-    // 3. AP Core execution loop (awaits tasks or halts cleanly)
-    while (1)
+    // 3. Initialize per-CPU TSS and load Task Register (TR)
+    TSS_InitializeAP(cpu_id, KERNEL_DATA_SELECTOR);
+
+    // 4. Initialize per-CPU scheduler runqueues
+    Task_APInit(cpu_id);
+
+    // 5. Wait for BSP to signal scheduler readiness
+    while (!g_SMP_SchedulerReady)
     {
-        __asm__ volatile("sti; hlt");
+        __asm__ volatile("pause");
     }
+
+    // 6. Enter AP parallel execution loop
+    Task_APStart(cpu_id);
 }
 
 bool SMP_Initialize(void)
@@ -78,6 +94,7 @@ bool SMP_Initialize(void)
     if (g_TotalCPUs <= 1)
     {
         log_info(MODULE, "Single-core CPU detected. Operating in standard uniprocessor mode.");
+        g_SMP_SchedulerReady = true;
         return true;
     }
 
@@ -90,6 +107,7 @@ bool SMP_Initialize(void)
         return false;
     }
 
+    g_SMPInitialized = true;
     g_Cpus[0].lapic_id = LAPIC_GetId();
 
     if (info->ioapic_phys_base != 0)
@@ -133,6 +151,12 @@ bool SMP_Initialize(void)
         uint8_t target_apic_id = info->cpus[i].apic_id;
         log_info(MODULE, "Booting AP Core %u (Target LAPIC ID %u)...", i, target_apic_id);
 
+        // Pre-populate CPU slot so AP can immediately resolve its CPU ID via SMP_GetCurrentCPUID()
+        g_Cpus[i].cpu_id   = i;
+        g_Cpus[i].lapic_id = target_apic_id;
+        g_Cpus[i].online   = false;
+        g_Cpus[i].is_bsp   = false;
+
         // Allocate dedicated 16 KiB kernel stack for this AP
         void* ap_stack = kmalloc(16384);
         if (!ap_stack)
@@ -172,10 +196,7 @@ bool SMP_Initialize(void)
 
         if (*(volatile uint32_t*)(SMP_TRAMPOLINE_PHYS + 0x54) == 1)
         {
-            g_Cpus[i].cpu_id   = i;
-            g_Cpus[i].lapic_id = target_apic_id;
             g_Cpus[i].online   = true;
-            g_Cpus[i].is_bsp   = false;
             g_OnlineCount++;
 
             log_info(MODULE, "AP Core %u (LAPIC ID %u) BOOTED & ONLINE! (Kernel stack: 0x%x)",
@@ -190,6 +211,8 @@ bool SMP_Initialize(void)
 
     log_info(MODULE, "SMP Initialization Complete: %u of %u CPU core(s) active and online.",
              g_OnlineCount, g_TotalCPUs);
+
+    g_SMP_SchedulerReady = true;
 
     return true;
 }
@@ -206,6 +229,9 @@ uint32_t SMP_GetOnlineCount(void)
 
 uint32_t SMP_GetCurrentCPUID(void)
 {
+    if (!g_SMPInitialized)
+        return 0;
+
     uint32_t lapic_id = LAPIC_GetId();
     for (uint32_t i = 0; i < g_TotalCPUs; i++)
     {
@@ -221,26 +247,86 @@ const SMP_CPU* SMP_GetCPU(uint32_t index)
     return &g_Cpus[index];
 }
 
+#include <hal/spinlock.h>
+
+static volatile uint32_t g_TLBShootdownAddr = 0;
+static Spinlock g_TLBLock = SPINLOCK_INIT;
+
+void SMP_SendRescheduleIPI(uint32_t target_cpu_id)
+{
+    const SMP_CPU* cpu = SMP_GetCPU(target_cpu_id);
+    if (cpu && cpu->online)
+    {
+        LAPIC_SendIPI((uint8_t)cpu->lapic_id, SMP_IPI_RESCHEDULE_VECTOR);
+    }
+}
+
+void SMP_BroadcastRescheduleIPI(void)
+{
+    if (g_OnlineCount > 1)
+    {
+        LAPIC_SendIPIBroadcast(SMP_IPI_RESCHEDULE_VECTOR);
+    }
+}
+
+void SMP_BroadcastTLBShootdown(uint32_t virt_addr)
+{
+    if (g_OnlineCount <= 1)
+        return;
+
+    uint8_t flags = spinlock_acquire_irqsave(&g_TLBLock);
+    g_TLBShootdownAddr = virt_addr;
+    LAPIC_SendIPIBroadcast(SMP_IPI_TLB_SHOOTDOWN_VECTOR);
+    spinlock_release_irqrestore(&g_TLBLock, flags);
+}
+
+void SMP_TLBShootdownHandler(uint32_t virt_addr)
+{
+    (void)virt_addr;
+    uint32_t addr = g_TLBShootdownAddr;
+    if (addr != 0)
+    {
+        i686_VMM_FlushTLB(addr);
+    }
+}
+
 void SMP_DumpStatus(void)
 {
-    printf("\n=== Symmetric Multiprocessing (SMP) Status ===\n");
+    printf("\n=== Symmetric Multiprocessing (SMP) Multi-Core Scheduler Status ===\n");
     printf("  Online Cores : %u / %u\n", g_OnlineCount, g_TotalCPUs);
-    printf("  Local APIC   : Base 0x%x (ID: %u)\n", LAPIC_DEFAULT_PHYS_BASE, LAPIC_GetId());
+    printf("  Local APIC   : Base 0x%x (Current LAPIC ID: %u)\n", LAPIC_DEFAULT_PHYS_BASE, LAPIC_GetId());
     const ACPI_Info* info = ACPI_GetInfo();
     if (info && info->ioapic_phys_base)
     {
         printf("  I/O APIC     : Base 0x%x (ID: %u)\n",
                info->ioapic_phys_base, info->ioapic_id);
     }
-    printf("\n  Core  Role  LAPIC_ID  Status\n");
-    printf("  -----------------------------\n");
+    printf("\n  Core  Role  Status   Active Task            RunQ(Q0/1/2)  Runs   Stolen(From/By)\n");
+    printf("  ------------------------------------------------------------------------------------\n");
     for (uint32_t i = 0; i < g_TotalCPUs; i++)
     {
-        printf("  CPU %u: Role=%s, LAPIC_ID=%u, Status=%s\n",
+        Task* cur = Task_GetCurrentForCPU(i);
+        char task_desc[32];
+        if (cur)
+            snprintf(task_desc, sizeof(task_desc), "%s (PID %u)", cur->name, cur->id);
+        else
+            snprintf(task_desc, sizeof(task_desc), "none");
+
+        uint32_t q0 = Task_GetQueueCount(i, 0);
+        uint32_t q1 = Task_GetQueueCount(i, 1);
+        uint32_t q2 = Task_GetQueueCount(i, 2);
+        uint32_t runs = Task_GetTotalTasksRun(i);
+        uint32_t stolen_from = Task_GetTasksStolenFrom(i);
+        uint32_t stolen_by = Task_GetTasksStolenBy(i);
+
+        printf("  CPU %u: [%s] %s | %s | %u/%u/%u | runs=%u | stolen=%u/%u\n",
                g_Cpus[i].cpu_id,
                g_Cpus[i].is_bsp ? "BSP" : "AP ",
-               g_Cpus[i].lapic_id,
-               g_Cpus[i].online ? "ONLINE" : "OFFLINE");
+               g_Cpus[i].online ? "ONLINE " : "OFFLINE",
+               task_desc,
+               q0, q1, q2,
+               runs,
+               stolen_from, stolen_by);
     }
-    printf("==============================================\n\n");
+    printf("====================================================================================\n\n");
 }

@@ -74,6 +74,8 @@ struct Task {
     uint32_t    voluntary_yields;   // Count of voluntary yields
     uint32_t    preemptions;        // Count of times quantum expired
     uint32_t    wake_tick;          // Scheduler tick at which sleeping task wakes up
+    uint32_t    assigned_cpu;       // Core ID where task is assigned/running
+    uint32_t    cpu_affinity;       // Bitmask of allowed CPU cores (0xFFFFFFFF = any core)
 
     Task*       next;               // Intrusive queue pointers
     Task*       prev;
@@ -81,7 +83,10 @@ struct Task {
 
 // Task Scheduler Public API
 void        Task_Initialize(void);
+void        Task_APInit(uint32_t cpu_id);
+void        Task_APStart(uint32_t cpu_id);
 Task*       Task_Create(const char* name, void (*entryPoint)(void));
+Task*       Task_CreateOnCPU(const char* name, void (*entryPoint)(void), uint32_t cpu_id);
 Task*       Task_CreateUser(const char* name, const void* code, size_t codeSize);
 Task*       Task_CreateUserFromELF(const char* name, const char* filepath, int argc, char* const argv[]);
 Task*       Task_Find(uint32_t pid);
@@ -94,6 +99,11 @@ bool        Task_SendSignal(uint32_t pid, int sig);
 void        Task_DeliverSignals(Registers* regs);
 Registers*  Task_Schedule(Registers* currentRegs);
 Task*       Task_GetCurrent(void);
+Task*       Task_GetCurrentForCPU(uint32_t cpu_id);
 bool        Task_IsActive(void);
 void        Task_DumpStats(void);
 uint32_t    Task_GetTicks(void);
+uint32_t    Task_GetQueueCount(uint32_t cpu_id, uint8_t priority);
+uint32_t    Task_GetTotalTasksRun(uint32_t cpu_id);
+uint32_t    Task_GetTasksStolenFrom(uint32_t cpu_id);
+uint32_t    Task_GetTasksStolenBy(uint32_t cpu_id);

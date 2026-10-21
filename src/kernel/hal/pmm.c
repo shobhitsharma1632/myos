@@ -1,6 +1,7 @@
 #include "pmm.h"
 #include <debug.h>
 #include "memory.h"
+#include "spinlock.h"
 
 // Symbol exported from linker script (linker.ld) marking kernel end
 extern uint8_t __end;
@@ -11,6 +12,7 @@ static uint32_t  g_TotalFrames = 0;
 static uint32_t  g_FreeFrames = 0;
 static uint32_t  g_TotalMemoryBytes = 0;
 static uint32_t  g_BitmapPages = 0;
+static Spinlock  g_PmmLock = SPINLOCK_INIT;
 
 static inline void pmm_bitmap_set(uint32_t frame)
 {
@@ -135,7 +137,7 @@ void PMM_Initialize(const BootParams* bootParams)
              g_TotalFrames - g_FreeFrames);
 }
 
-void* PMM_AllocatePage(void)
+static void* pmm_allocate_page_internal(void)
 {
     if (g_FreeFrames == 0)
     {
@@ -164,13 +166,21 @@ void* PMM_AllocatePage(void)
     return NULL;
 }
 
-void* PMM_AllocatePages(size_t count)
+void* PMM_AllocatePage(void)
+{
+    uint8_t flags = spinlock_acquire_irqsave(&g_PmmLock);
+    void* res = pmm_allocate_page_internal();
+    spinlock_release_irqrestore(&g_PmmLock, flags);
+    return res;
+}
+
+static void* pmm_allocate_pages_internal(size_t count)
 {
     if (count == 0)
         return NULL;
 
     if (count == 1)
-        return PMM_AllocatePage();
+        return pmm_allocate_page_internal();
 
     if (count > g_FreeFrames)
     {
@@ -217,7 +227,15 @@ void* PMM_AllocatePages(size_t count)
     return NULL;
 }
 
-void PMM_FreePage(void* ptr)
+void* PMM_AllocatePages(size_t count)
+{
+    uint8_t flags = spinlock_acquire_irqsave(&g_PmmLock);
+    void* res = pmm_allocate_pages_internal(count);
+    spinlock_release_irqrestore(&g_PmmLock, flags);
+    return res;
+}
+
+static void pmm_free_page_internal(void* ptr)
 {
     uint32_t addr = (uint32_t)ptr;
     if (addr & PAGE_MASK)
@@ -243,6 +261,13 @@ void PMM_FreePage(void* ptr)
     g_FreeFrames++;
 }
 
+void PMM_FreePage(void* ptr)
+{
+    uint8_t flags = spinlock_acquire_irqsave(&g_PmmLock);
+    pmm_free_page_internal(ptr);
+    spinlock_release_irqrestore(&g_PmmLock, flags);
+}
+
 void PMM_FreePages(void* ptr, size_t count)
 {
     uint32_t addr = (uint32_t)ptr;
@@ -252,10 +277,12 @@ void PMM_FreePages(void* ptr, size_t count)
         return;
     }
 
+    uint8_t flags = spinlock_acquire_irqsave(&g_PmmLock);
     for (size_t i = 0; i < count; i++)
     {
-        PMM_FreePage((void*)(addr + i * PAGE_SIZE));
+        pmm_free_page_internal((void*)(addr + i * PAGE_SIZE));
     }
+    spinlock_release_irqrestore(&g_PmmLock, flags);
 }
 
 uint32_t PMM_GetTotalMemory(void)

@@ -7,6 +7,9 @@
 #define i686_GDT_USER_DATA_SEGMENT  0x20
 #define i686_GDT_TSS_SEGMENT        0x28
 
+#define GDT_TSS_BASE_INDEX          5
+#define GDT_TSS_SELECTOR_FOR_CPU(cpu_id) ((uint16_t)(((GDT_TSS_BASE_INDEX) + (cpu_id)) * 8))
+
 // Selectors with Requested Privilege Level (RPL)
 #define KERNEL_CODE_SELECTOR        i686_GDT_CODE_SEGMENT          // 0x08 (RPL 0)
 #define KERNEL_DATA_SELECTOR        i686_GDT_DATA_SEGMENT          // 0x10 (RPL 0)
