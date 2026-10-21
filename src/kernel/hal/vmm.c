@@ -25,6 +25,14 @@ void i686_VMM_PageFaultHandler(Registers* regs)
     if (user || (regs->cs & 3) == 3)
     {
         Task* cur = Task_GetCurrent();
+        if (cur && cur->signal_handlers[SIGSEGV] != (uint32_t)SIG_DFL &&
+            cur->signal_handlers[SIGSEGV] != (uint32_t)SIG_IGN)
+        {
+            Task_SendSignal(cur->id, SIGSEGV);
+            Task_DeliverSignals(regs);
+            return;
+        }
+
         log_warn("VMM", "User Process '%s' (PID %u) triggered Page Fault (#PF) at 0x%x [EIP 0x%x, err 0x%x: %s, %s, %s]!",
                  cur ? cur->name : "unknown",
                  cur ? cur->id : 0,
@@ -38,7 +46,7 @@ void i686_VMM_PageFaultHandler(Registers* regs)
                faultAddr, regs->eip,
                present ? "protection violation" : "page not present");
 
-        Task_Exit();
+        Task_ExitWithCode(128 + SIGSEGV);
         return;
     }
 

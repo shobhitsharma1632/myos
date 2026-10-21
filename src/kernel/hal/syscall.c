@@ -584,6 +584,141 @@ void Syscall_Handler(Registers* regs)
             break;
         }
 
+        case SYS_KILL:
+        {
+            uint32_t pid = (uint32_t)arg1;
+            int sig = (int)arg2;
+            regs->eax = Task_SendSignal(pid, sig) ? 0 : (uint32_t)-1;
+            break;
+        }
+
+        case SYS_SIGNAL:
+        {
+            int sig = (int)arg1;
+            uint32_t handler = (uint32_t)arg2;
+            uint32_t restorer = (uint32_t)arg3;
+
+            if (sig <= 0 || sig >= NSIG || sig == SIGKILL || sig == SIGSTOP || !current)
+            {
+                regs->eax = (uint32_t)SIG_ERR;
+                break;
+            }
+
+            uint32_t old_handler = current->signal_handlers[sig];
+            current->signal_handlers[sig] = handler;
+            if (restorer)
+            {
+                current->signal_restorers[sig] = restorer;
+            }
+            regs->eax = old_handler;
+            break;
+        }
+
+        case SYS_SIGACTION:
+        {
+            int sig = (int)arg1;
+            const struct sigaction* act = (const struct sigaction*)arg2;
+            struct sigaction* oldact = (struct sigaction*)arg3;
+
+            if (sig <= 0 || sig >= NSIG || sig == SIGKILL || sig == SIGSTOP || !current)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            if (oldact)
+            {
+                oldact->sa_handler  = (sighandler_t)current->signal_handlers[sig];
+                oldact->sa_mask     = current->signal_mask;
+                oldact->sa_flags    = 0;
+                oldact->sa_restorer = (void (*)(void))current->signal_restorers[sig];
+            }
+
+            if (act)
+            {
+                current->signal_handlers[sig] = (uint32_t)act->sa_handler;
+                current->signal_mask          = act->sa_mask;
+                if (act->sa_restorer)
+                {
+                    current->signal_restorers[sig] = (uint32_t)act->sa_restorer;
+                }
+            }
+
+            regs->eax = 0;
+            break;
+        }
+
+        case SYS_SIGRETURN:
+        {
+            if (!current || !current->is_user)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            // User ESP currently points to &frame.sig (after restorer_return_addr was popped)
+            // &frame.context is at regs->esp + 4
+            uint32_t ctx_addr = regs->esp + 4;
+            if (ctx_addr < 0x40000000 || ctx_addr + sizeof(SigContext) >= 0x80000000)
+            {
+                log_err(MODULE, "[SYS_SIGRETURN] Invalid context pointer 0x%x!", ctx_addr);
+                Task_ExitWithCode(128 + SIGSEGV);
+                break;
+            }
+
+            SigContext* ctx = (SigContext*)ctx_addr;
+
+            // Restore user registers
+            regs->eip    = ctx->eip;
+            regs->cs     = ctx->cs;
+            regs->eflags = ctx->eflags;
+            regs->eax    = ctx->eax;
+            regs->ecx    = ctx->ecx;
+            regs->edx    = ctx->edx;
+            regs->ebx    = ctx->ebx;
+            regs->esp    = ctx->esp;
+            regs->ebp    = ctx->ebp;
+            regs->esi    = ctx->esi;
+            regs->edi    = ctx->edi;
+            regs->ds     = ctx->ds;
+
+            current->signal_mask = ctx->old_mask;
+            current->in_signal_handler = false;
+
+            // Retain restored eax
+            break;
+        }
+
+        case SYS_ALARM:
+        {
+            uint32_t seconds = (uint32_t)arg1;
+            if (!current)
+            {
+                regs->eax = 0;
+                break;
+            }
+
+            uint32_t old_remaining_secs = (current->alarm_ticks + 99) / 100;
+            current->alarm_ticks = seconds * 100;
+            regs->eax = old_remaining_secs;
+            break;
+        }
+
+        case SYS_PAUSE:
+        {
+            if (!current)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            current->state = TASK_SLEEPING;
+            current->wake_tick = 0xFFFFFFFF; // Suspended until woken by a signal
+            Syscall_RequestYield();
+            regs->eax = (uint32_t)-1; // POSIX pause() always returns -1 with EINTR
+            break;
+        }
+
         default:
         {
             log_warn(MODULE, "Unknown syscall %u called by '%s' (PID %u)",

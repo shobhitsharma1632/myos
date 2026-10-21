@@ -341,35 +341,71 @@ bool FAT_IsMounted(void)
     return g_Mounted;
 }
 
-static bool FAT_FindFileInDir(uint32_t dirStartLba, uint32_t dirSectorCount, const uint8_t dosName[11],
-                              FAT_DirEntry* outEntry, uint32_t* outLba, uint32_t* outIndex)
+static bool FAT_FindFileInDir(uint32_t dirStartLba, uint32_t dirSectorCount, uint32_t dirCluster,
+                              const uint8_t dosName[11], FAT_DirEntry* outEntry, uint32_t* outLba, uint32_t* outIndex)
 {
     uint8_t buffer[512];
     FAT_DirEntry* entries = (FAT_DirEntry*)buffer;
 
-    for (uint32_t s = 0; s < dirSectorCount; s++)
+    if (dirCluster == 0) // Root Directory on FAT12/FAT16
     {
-        uint32_t curLba = dirStartLba + s;
-        if (!ATA_ReadSectors(curLba, 1, buffer))
-            return false;
-
-        for (uint32_t e = 0; e < 16; e++)
+        for (uint32_t s = 0; s < dirSectorCount; s++)
         {
-            if (entries[e].name[0] == 0x00)
-                return false; // No more entries
-            if (entries[e].name[0] == 0xE5)
-                continue;     // Deleted entry
-            if (entries[e].attributes & FAT_ATTR_VOLUME_ID)
-                continue;
+            uint32_t curLba = dirStartLba + s;
+            if (!ATA_ReadSectors(curLba, 1, buffer))
+                return false;
 
-            if (memcmp(entries[e].name, dosName, 11) == 0)
+            for (uint32_t e = 0; e < 16; e++)
             {
-                if (outEntry) *outEntry = entries[e];
-                if (outLba)   *outLba = curLba;
-                if (outIndex) *outIndex = e;
-                return true;
+                if (entries[e].name[0] == 0x00)
+                    return false; // No more entries
+                if (entries[e].name[0] == 0xE5)
+                    continue;     // Deleted entry
+                if (entries[e].attributes & FAT_ATTR_VOLUME_ID)
+                    continue;
+
+                if (memcmp(entries[e].name, dosName, 11) == 0)
+                {
+                    if (outEntry) *outEntry = entries[e];
+                    if (outLba)   *outLba = curLba;
+                    if (outIndex) *outIndex = e;
+                    return true;
+                }
             }
         }
+        return false;
+    }
+
+    // Subdirectory: follow cluster chain
+    uint32_t cluster = dirCluster;
+    while (cluster >= 2 && cluster < 0x0FFFFFFF)
+    {
+        uint32_t clusterLba = FAT_ClusterToLba(cluster);
+        for (uint32_t s = 0; s < g_Bpb.sectors_per_cluster; s++)
+        {
+            uint32_t curLba = clusterLba + s;
+            if (!ATA_ReadSectors(curLba, 1, buffer))
+                return false;
+
+            for (uint32_t e = 0; e < 16; e++)
+            {
+                if (entries[e].name[0] == 0x00)
+                    return false; // No more entries
+                if (entries[e].name[0] == 0xE5)
+                    continue;     // Deleted entry
+                if (entries[e].attributes & FAT_ATTR_VOLUME_ID)
+                    continue;
+
+                if (memcmp(entries[e].name, dosName, 11) == 0)
+                {
+                    if (outEntry) *outEntry = entries[e];
+                    if (outLba)   *outLba = curLba;
+                    if (outIndex) *outIndex = e;
+                    return true;
+                }
+            }
+        }
+        cluster = FAT_GetNextCluster(cluster);
     }
     return false;
 }
@@ -397,6 +433,7 @@ static bool FAT_ResolvePath(const char* path, FAT_DirEntry* outEntry, uint32_t* 
 
     uint32_t curDirLba = g_RootDirLba;
     uint32_t curDirSectors = g_RootDirSectors;
+    uint32_t curDirCluster = 0;
 
     char part[64];
     while (*path)
@@ -417,7 +454,7 @@ static bool FAT_ResolvePath(const char* path, FAT_DirEntry* outEntry, uint32_t* 
         FAT_DirEntry entry;
         uint32_t entryLba = 0;
         uint32_t entryIdx = 0;
-        if (!FAT_FindFileInDir(curDirLba, curDirSectors, dosName, &entry, &entryLba, &entryIdx))
+        if (!FAT_FindFileInDir(curDirLba, curDirSectors, curDirCluster, dosName, &entry, &entryLba, &entryIdx))
         {
             return false;
         }
@@ -437,8 +474,8 @@ static bool FAT_ResolvePath(const char* path, FAT_DirEntry* outEntry, uint32_t* 
             return false;
         }
 
-        uint32_t cl = entry.first_cluster_low | ((uint32_t)entry.first_cluster_high << 16);
-        curDirLba = FAT_ClusterToLba(cl);
+        curDirCluster = entry.first_cluster_low | ((uint32_t)entry.first_cluster_high << 16);
+        curDirLba = FAT_ClusterToLba(curDirCluster);
         curDirSectors = g_Bpb.sectors_per_cluster;
     }
 
@@ -796,6 +833,7 @@ bool FAT_ReadDir(const char* path, size_t index, FAT_DirEntryInfo* out)
 
     uint32_t dirStartLba = g_RootDirLba;
     uint32_t dirSectors = g_RootDirSectors;
+    uint32_t dirCluster = 0;
 
     if (path && path[0] && strcmp(path, "/") != 0)
     {
@@ -804,8 +842,8 @@ bool FAT_ReadDir(const char* path, size_t index, FAT_DirEntryInfo* out)
         {
             return false;
         }
-        uint32_t cl = dirEntry.first_cluster_low | ((uint32_t)dirEntry.first_cluster_high << 16);
-        dirStartLba = FAT_ClusterToLba(cl);
+        dirCluster = dirEntry.first_cluster_low | ((uint32_t)dirEntry.first_cluster_high << 16);
+        dirStartLba = FAT_ClusterToLba(dirCluster);
         dirSectors = g_Bpb.sectors_per_cluster;
     }
 
@@ -813,30 +851,67 @@ bool FAT_ReadDir(const char* path, size_t index, FAT_DirEntryInfo* out)
     FAT_DirEntry* entries = (FAT_DirEntry*)buffer;
     size_t validCount = 0;
 
-    for (uint32_t s = 0; s < dirSectors; s++)
+    if (dirCluster == 0) // Root Directory on FAT12/FAT16
     {
-        if (!ATA_ReadSectors(dirStartLba + s, 1, buffer))
-            return false;
-
-        for (uint32_t e = 0; e < 16; e++)
+        for (uint32_t s = 0; s < dirSectors; s++)
         {
-            if (entries[e].name[0] == 0x00)
+            if (!ATA_ReadSectors(dirStartLba + s, 1, buffer))
                 return false;
-            if (entries[e].name[0] == 0xE5)
-                continue;
-            if (entries[e].attributes & FAT_ATTR_VOLUME_ID)
-                continue;
 
-            if (validCount == index)
+            for (uint32_t e = 0; e < 16; e++)
             {
-                FAT_FormatFileName(entries[e].name, out->name);
-                out->size = entries[e].file_size;
-                out->attributes = entries[e].attributes;
-                out->is_directory = (entries[e].attributes & FAT_ATTR_DIRECTORY) != 0;
-                return true;
+                if (entries[e].name[0] == 0x00)
+                    return false;
+                if (entries[e].name[0] == 0xE5)
+                    continue;
+                if (entries[e].attributes & FAT_ATTR_VOLUME_ID)
+                    continue;
+
+                if (validCount == index)
+                {
+                    FAT_FormatFileName(entries[e].name, out->name);
+                    out->size = entries[e].file_size;
+                    out->attributes = entries[e].attributes;
+                    out->is_directory = (entries[e].attributes & FAT_ATTR_DIRECTORY) != 0;
+                    return true;
+                }
+                validCount++;
             }
-            validCount++;
         }
+        return false;
+    }
+
+    // Subdirectory: follow cluster chain
+    uint32_t cluster = dirCluster;
+    while (cluster >= 2 && cluster < 0x0FFFFFFF)
+    {
+        uint32_t clusterLba = FAT_ClusterToLba(cluster);
+        for (uint32_t s = 0; s < g_Bpb.sectors_per_cluster; s++)
+        {
+            if (!ATA_ReadSectors(clusterLba + s, 1, buffer))
+                return false;
+
+            for (uint32_t e = 0; e < 16; e++)
+            {
+                if (entries[e].name[0] == 0x00)
+                    return false;
+                if (entries[e].name[0] == 0xE5)
+                    continue;
+                if (entries[e].attributes & FAT_ATTR_VOLUME_ID)
+                    continue;
+
+                if (validCount == index)
+                {
+                    FAT_FormatFileName(entries[e].name, out->name);
+                    out->size = entries[e].file_size;
+                    out->attributes = entries[e].attributes;
+                    out->is_directory = (entries[e].attributes & FAT_ATTR_DIRECTORY) != 0;
+                    return true;
+                }
+                validCount++;
+            }
+        }
+        cluster = FAT_GetNextCluster(cluster);
     }
 
     return false;

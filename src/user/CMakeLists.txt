@@ -62,6 +62,8 @@ build_user_app(tee)
 build_user_app(head)
 build_user_app(curl)
 build_user_app(httpd)
+build_user_app(alarm)
+build_user_app(trap)
 
 set(ALL_USER_ELFS ${ALL_USER_ELFS} PARENT_SCOPE)
 add_custom_target(user_apps ALL DEPENDS ${ALL_USER_ELFS})

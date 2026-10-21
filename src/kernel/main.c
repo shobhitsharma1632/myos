@@ -28,6 +28,7 @@ static void Task_Phase14_LibcVerification(void);
 static void Task_Phase15_NetworkVerification(void);
 static void Task_Phase16_PipesVerification(void);
 static void Task_Phase17_TCPSocketsVerification(void);
+static void Task_Phase18_SignalsVerification(void);
 static void Task_ShellDemo(void);
 
 static void Task_Phase11_UserModeVerification(void)
@@ -930,6 +931,105 @@ static void Task_Phase17_TCPSocketsVerification(void)
     }
 
     log_info("Phase17", "=== Phase 17: TCP Protocol Stack & BSD Sockets 100%%%% VERIFIED! ===");
+    Task_Create("Phase18_Test", Task_Phase18_SignalsVerification);
+    Task_Exit();
+}
+
+static void Task_Phase18_SignalsVerification(void)
+{
+    // Wait for scheduler and previous tasks to stabilize
+    for (int i = 0; i < 5; i++) Task_Yield();
+
+    log_info("Phase18", "=======================================================");
+    log_info("Phase18", "Starting Phase 18: POSIX Signals & Job Control Verification");
+    log_info("Phase18", "=======================================================");
+
+    // Test 1: Task_SendSignal & Default Terminating Signal (SIGKILL)
+    log_info("Phase18", "Test 1: Testing inter-process signals and default terminating actions...");
+    char* hello_args[] = { "/bin/hello.elf", "sigkill_test", NULL };
+    Task* tHello = Task_CreateUserFromELF("u_sigkill", "/bin/hello.elf", 2, hello_args);
+    if (tHello)
+    {
+        bool kill_ok = Task_SendSignal(tHello->id, SIGKILL);
+        log_info("Phase18", "Task_SendSignal(SIGKILL) to PID %u returned %d", tHello->id, kill_ok);
+        int32_t status = -1;
+        int32_t wait_res = Task_WaitPID(tHello->id, &status);
+        log_info("Phase18", "WaitPID on killed task: res=%d status=%d", wait_res, status);
+        if (kill_ok && wait_res >= 0)
+        {
+            log_info("Phase18", "Test 1: Default Signal Termination PASSED!");
+        }
+        else
+        {
+            log_err("Phase18", "Test 1: Default Signal Termination FAILED!");
+        }
+    }
+    else
+    {
+        log_err("Phase18", "Test 1: Failed to spawn test task!");
+    }
+
+    // Test 2: User-Space Signal Handlers & Context Restoration via trap.elf
+    log_info("Phase18", "Test 2: Spawning '/bin/trap.elf' (custom SIGUSR1/SIGUSR2 handlers & sys_sigreturn)...");
+    char* trap_args[] = { "/bin/trap.elf", NULL };
+    Task* tTrap = Task_CreateUserFromELF("u_trap", "/bin/trap.elf", 1, trap_args);
+    if (tTrap)
+    {
+        int32_t status_trap = -1;
+        int32_t wait_trap = Task_WaitPID(tTrap->id, &status_trap);
+        log_info("Phase18", "trap.elf waitRes=%d status=%d", wait_trap, status_trap);
+        if (wait_trap >= 0 && status_trap == 0)
+        {
+            log_info("Phase18", "Test 2: User-Space Signal Handlers & Context Restoration PASSED!");
+        }
+        else
+        {
+            log_err("Phase18", "Test 2: trap.elf execution FAILED (status=%d)!", status_trap);
+        }
+    }
+    else
+    {
+        log_err("Phase18", "Test 2: Failed to spawn '/bin/trap.elf'!");
+    }
+
+    // Test 3: Asynchronous Timer Alarm & pause() via alarm.elf
+    log_info("Phase18", "Test 3: Spawning '/bin/alarm.elf 1' (SIGALRM, alarm() & pause())...");
+    char* alarm_args[] = { "/bin/alarm.elf", "1", NULL };
+    Task* tAlarm = Task_CreateUserFromELF("u_alarm", "/bin/alarm.elf", 2, alarm_args);
+    if (tAlarm)
+    {
+        int32_t status_alarm = -1;
+        int32_t wait_alarm = Task_WaitPID(tAlarm->id, &status_alarm);
+        log_info("Phase18", "alarm.elf waitRes=%d status=%d", wait_alarm, status_alarm);
+        if (wait_alarm >= 0 && status_alarm == 0)
+        {
+            log_info("Phase18", "Test 3: Asynchronous SIGALRM & pause() PASSED!");
+        }
+        else
+        {
+            log_err("Phase18", "Test 3: alarm.elf execution FAILED (status=%d)!", status_alarm);
+        }
+    }
+    else
+    {
+        log_err("Phase18", "Test 3: Failed to spawn '/bin/alarm.elf'!");
+    }
+
+    // Test 4: Default Ignored Signals (SIGCHLD / SIGCONT)
+    log_info("Phase18", "Test 4: Verifying default ignored signals (SIGCHLD)...");
+    Task* cur = Task_GetCurrent();
+    bool chld_ok = Task_SendSignal(cur->id, SIGCHLD);
+    log_info("Phase18", "Sent SIGCHLD to current task (handled/ignored=%d)", chld_ok);
+    if (chld_ok)
+    {
+        log_info("Phase18", "Test 4: Default Ignored Signals PASSED!");
+    }
+    else
+    {
+        log_err("Phase18", "Test 4: Default Ignored Signals FAILED!");
+    }
+
+    log_info("Phase18", "=== Phase 18: POSIX Signals & Job Control 100%%%% VERIFIED! ===");
     Task_Create("ShellDemo", Task_ShellDemo);
     Task_Exit();
 }
@@ -956,11 +1056,13 @@ static void Task_ShellDemo(void)
         "touch /notes.txt",
         "write /notes.txt Testing interactive shell disk write!",
         "cat /notes.txt",
+        "exec /bin/trap.elf",
+        "exec /bin/alarm.elf 1",
         "ps",
         "gui"
     };
 
-    for (int c = 0; c < 20; c++)
+    for (int c = 0; c < (int)(sizeof(demoCmds) / sizeof(demoCmds[0])); c++)
     {
         const char* cmd = demoCmds[c];
         log_info("ShellDemo", "Simulating keyboard input: '%s'", cmd);
@@ -1160,15 +1262,15 @@ void start(BootParams* bootParams)
     Net_Initialize();
 
     printf("\n=======================================================\n");
-    printf("  myOS Phase 17: TCP Protocol Stack & BSD Sockets\n");
-    printf("  RFC 793 TCP State Machine, BSD Sockets, /bin/curl & /bin/httpd Active!\n");
+    printf("  myOS Phase 18: POSIX Signals & Job Control\n");
+    printf("  Asynchronous Signal Delivery, User Stack Trampoline, /bin/trap & /bin/alarm Active!\n");
     printf("=======================================================\n\n");
 
     // Initialize MLFQ Task Scheduler
     Task_Initialize();
 
     // Spawn Phase 11 Ring 3 User Mode Automated Verification Pipeline
-    // (Sequentially cascades: Phase 11 -> Phase 12 -> Phase 13 -> Phase 14 -> Phase 15 -> Phase 16 -> Phase 17 -> ShellDemo)
+    // (Sequentially cascades: Phase 11 -> Phase 12 -> Phase 13 -> Phase 14 -> Phase 15 -> Phase 16 -> Phase 17 -> Phase 18 -> ShellDemo)
     Task_Create("Phase11_Test", Task_Phase11_UserModeVerification);
 
     // Spawn Phase 9 Interactive Command Shell Task

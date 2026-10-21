@@ -70,6 +70,18 @@ Registers* __attribute__((cdecl)) i686_ISR_Handler(Registers* regs)
         if ((regs->cs & 3) == 3)
         {
             Task* cur = Task_GetCurrent();
+            if (cur && (regs->interrupt == 13 || regs->interrupt == 6)) // #GP or Invalid Opcode
+            {
+                int sig = (regs->interrupt == 6) ? SIGILL : SIGSEGV;
+                if (cur->signal_handlers[sig] != (uint32_t)SIG_DFL &&
+                    cur->signal_handlers[sig] != (uint32_t)SIG_IGN)
+                {
+                    Task_SendSignal(cur->id, sig);
+                    Task_DeliverSignals(regs);
+                    return regs;
+                }
+            }
+
             const char* excName = (regs->interrupt < 32 && g_Exceptions[regs->interrupt][0]) ?
                                   g_Exceptions[regs->interrupt] : "Exception";
             log_warn("ISR", "User Process '%s' (PID %u) triggered exception %d (%s) at EIP 0x%x (Error 0x%x)!",
@@ -99,12 +111,18 @@ Registers* __attribute__((cdecl)) i686_ISR_Handler(Registers* regs)
         i686_Panic();
     }
 
+    Registers* ret_regs = regs;
     if (Task_IsActive() && (regs->interrupt == 32 || regs->interrupt == 129 || Syscall_TakeYieldRequest()))
     {
-        return Task_Schedule(regs);
+        ret_regs = Task_Schedule(regs);
     }
 
-    return regs;
+    if (Task_IsActive())
+    {
+        Task_DeliverSignals(ret_regs);
+    }
+
+    return ret_regs;
 }
 
 void i686_ISR_RegisterHandler(int interrupt, ISRHandler handler)

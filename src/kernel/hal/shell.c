@@ -284,7 +284,7 @@ static int Shell_ExecuteSingle(char* cmdLine, bool wait_for_exit)
         shell_print("  touch <file>        - Create a new empty file\n");
         shell_print("  write <file> <text> - Write or append text to a file\n");
         shell_print("  exec <elf> [args..] - Execute standalone ELF binary from disk in Ring 3\n");
-        shell_print("  kill <pid>          - Terminate task by Process ID\n");
+        shell_print("  kill <pid> [sig]    - Send signal to process (default SIGTERM)\n");
         shell_print("  stats               - Dump live MLFQ scheduling metrics\n");
         shell_print("  gui                 - Launch high-resolution 1024x768 GUI desktop\n");
         shell_print("  echo <text...>      - Print text arguments to screen\n");
@@ -350,15 +350,16 @@ static int Shell_ExecuteSingle(char* cmdLine, bool wait_for_exit)
     {
         if (argc < 2)
         {
-            shell_print("Usage: kill <pid>\n");
+            shell_print("Usage: kill <pid> [sig]\n");
             return -1;
         }
 
         uint32_t pid = (uint32_t)str_to_int(argv[1]);
-        if (Task_Kill(pid))
-            shell_print("Task PID %u successfully terminated.\n", pid);
+        int sig = (argc >= 3) ? str_to_int(argv[2]) : SIGTERM;
+        if (Task_SendSignal(pid, sig))
+            shell_print("Signal %d successfully sent to task PID %u.\n", sig, pid);
         else
-            shell_print("Failed to terminate task PID %u (PID not found or system protected).\n", pid);
+            shell_print("Failed to signal task PID %u (PID not found, invalid sig, or system protected).\n", pid);
     }
     else if (str_cmp(cmd, "echo") == 0)
     {

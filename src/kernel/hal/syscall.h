@@ -36,6 +36,12 @@
 #define SYS_ACCEPT      29  // Accept connection (ebx = fd, ecx = sockaddr*, edx = socklen*)
 #define SYS_SEND        30  // Send on socket (ebx = fd, ecx = buf, edx = len)
 #define SYS_RECV        31  // Receive on socket (ebx = fd, ecx = buf, edx = len)
+#define SYS_KILL        32  // Send signal to process (ebx = pid, ecx = sig)
+#define SYS_SIGNAL      33  // Set signal handler (ebx = sig, ecx = handler, edx = restorer)
+#define SYS_SIGACTION   34  // Set detailed signal action (ebx = sig, ecx = act*, edx = oldact*)
+#define SYS_SIGRETURN   35  // Return from signal handler (restores user context)
+#define SYS_ALARM       36  // Set alarm timer (ebx = seconds)
+#define SYS_PAUSE       37  // Wait for signal (suspends until signal caught)
 
 #define AF_UNSPEC 0
 #define AF_UNIX   1

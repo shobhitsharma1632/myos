@@ -501,6 +501,57 @@ bool Task_Kill(uint32_t pid)
     return false;
 }
 
+bool Task_SendSignal(uint32_t pid, int sig)
+{
+    if (sig <= 0 || sig >= NSIG)
+        return false;
+
+    uint8_t ints = i686_DisableInterrupts();
+    Task* t = Task_Find(pid);
+    if (!t || t->state == TASK_TERMINATED)
+    {
+        if (ints) i686_EnableInterrupts();
+        return false;
+    }
+
+    // SIGKILL cannot be caught or ignored
+    if (sig == SIGKILL)
+    {
+        if (ints) i686_EnableInterrupts();
+        return Task_Kill(pid);
+    }
+
+    t->pending_signals |= (1 << sig);
+
+    // If task was sleeping (e.g. waiting on pause() or sleep()), wake it up so signal is processed
+    if (t->state == TASK_SLEEPING)
+    {
+        Task* curr = g_SleepingHead;
+        Task* prev = NULL;
+        while (curr)
+        {
+            if (curr == t)
+            {
+                if (prev)
+                    prev->next = curr->next;
+                else
+                    g_SleepingHead = curr->next;
+                break;
+            }
+            prev = curr;
+            curr = curr->next;
+        }
+
+        t->state = TASK_READY;
+        t->next = NULL;
+        t->prev = NULL;
+        Queue_PushBack(&g_MLFQ[t->priority], t);
+    }
+
+    if (ints) i686_EnableInterrupts();
+    return true;
+}
+
 Task* Task_Find(uint32_t pid)
 {
     if (g_CurrentTask && g_CurrentTask->id == pid)
@@ -722,6 +773,157 @@ Task* Task_CreateUserFromELF(const char* name, const char* filepath, int argc, c
     return task;
 }
 
+static void Task_UpdateAlarms(void)
+{
+    for (int p = 0; p < MLFQ_LEVELS; p++)
+    {
+        Task* t = g_MLFQ[p].head;
+        while (t)
+        {
+            if (t != g_CurrentTask && t->alarm_ticks > 0)
+            {
+                t->alarm_ticks--;
+                if (t->alarm_ticks == 0)
+                {
+                    Task_SendSignal(t->id, SIGALRM);
+                }
+            }
+            t = t->next;
+        }
+    }
+
+    Task* s = g_SleepingHead;
+    while (s)
+    {
+        if (s != g_CurrentTask && s->alarm_ticks > 0)
+        {
+            s->alarm_ticks--;
+            if (s->alarm_ticks == 0)
+            {
+                Task_SendSignal(s->id, SIGALRM);
+            }
+        }
+        s = s->next;
+    }
+
+    if (g_CurrentTask && g_CurrentTask->alarm_ticks > 0)
+    {
+        g_CurrentTask->alarm_ticks--;
+        if (g_CurrentTask->alarm_ticks == 0)
+        {
+            Task_SendSignal(g_CurrentTask->id, SIGALRM);
+        }
+    }
+}
+
+void Task_DeliverSignals(Registers* regs)
+{
+    if (!regs) return;
+
+    // Only deliver signals when returning to Ring 3 User Mode
+    if ((regs->cs & 3) != 3)
+        return;
+
+    Task* task = g_CurrentTask;
+    if (!task || !task->is_user)
+        return;
+
+    // Do not re-enter if already executing a signal handler
+    if (task->in_signal_handler)
+        return;
+
+    uint32_t active = task->pending_signals & ~task->signal_mask;
+    if (active == 0)
+        return;
+
+    // Find lowest active signal (1..31)
+    int sig = 0;
+    for (int s = 1; s < NSIG; s++)
+    {
+        if (active & (1 << s))
+        {
+            sig = s;
+            break;
+        }
+    }
+
+    if (sig == 0)
+        return;
+
+    // Clear pending signal bit
+    task->pending_signals &= ~(1 << sig);
+
+    uint32_t handler = task->signal_handlers[sig];
+
+    // SIG_IGN: Ignore signal
+    if (handler == (uint32_t)SIG_IGN)
+        return;
+
+    // SIG_DFL: Default Action
+    if (handler == (uint32_t)SIG_DFL)
+    {
+        if (sig == SIGCHLD || sig == SIGCONT || sig == SIGUSR1 || sig == SIGUSR2)
+        {
+            return;
+        }
+
+        if (sig == SIGSTOP || sig == SIGTSTP)
+        {
+            task->state = TASK_SLEEPING;
+            task->wake_tick = 0xFFFFFFFF;
+            return;
+        }
+
+        log_info(MODULE, "Process '%s' (PID %u) terminated by default signal %d", task->name, task->id, sig);
+        Task_ExitWithCode(128 + sig);
+        return;
+    }
+
+    // Custom Signal Handler: Forge SigFrame on User Stack
+    uint32_t old_sp = regs->esp;
+    uint32_t frame_addr = (old_sp - sizeof(SigFrame)) & ~0xF; // 16-byte aligned
+
+    if (frame_addr < 0x40000000 || frame_addr >= 0x80000000)
+    {
+        log_err(MODULE, "Process '%s' (PID %u) user stack overflow/invalid SP 0x%x on signal %d!",
+                task->name, task->id, frame_addr, sig);
+        Task_ExitWithCode(128 + SIGSEGV);
+        return;
+    }
+
+    SigFrame frame;
+    memset(&frame, 0, sizeof(SigFrame));
+
+    frame.restorer_return_addr = task->signal_restorers[sig];
+    frame.sig = (uint32_t)sig;
+
+    frame.context.eip      = regs->eip;
+    frame.context.cs       = regs->cs;
+    frame.context.eflags   = regs->eflags;
+    frame.context.eax      = regs->eax;
+    frame.context.ecx      = regs->ecx;
+    frame.context.edx      = regs->edx;
+    frame.context.ebx      = regs->ebx;
+    frame.context.esp      = old_sp;
+    frame.context.ebp      = regs->ebp;
+    frame.context.esi      = regs->esi;
+    frame.context.edi      = regs->edi;
+    frame.context.ds       = regs->ds;
+    frame.context.es       = regs->ds;
+    frame.context.fs       = regs->ds;
+    frame.context.gs       = regs->ds;
+    frame.context.old_mask = task->signal_mask;
+    frame.context.sig      = (uint32_t)sig;
+
+    memcpy((void*)frame_addr, &frame, sizeof(SigFrame));
+
+    regs->esp = frame_addr;
+    regs->eip = handler;
+
+    task->in_signal_handler = true;
+    task->signal_mask |= (1 << sig);
+}
+
 Registers* Task_Schedule(Registers* currentRegs)
 {
     if (!g_SchedulerActive || g_CurrentTask == NULL)
@@ -730,6 +932,7 @@ Registers* Task_Schedule(Registers* currentRegs)
     // 1. Save execution state of current task
     g_CurrentTask->esp = (uint32_t)currentRegs;
     g_SchedulerTicks++;
+    Task_UpdateAlarms();
 
     // Poll network hardware for incoming packets
     extern void Net_Poll(void);

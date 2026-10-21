@@ -28,6 +28,8 @@
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
 
+typedef int32_t pid_t;
+
 // File Stream Abstraction
 typedef struct FILE FILE;
 
@@ -206,3 +208,54 @@ uint16_t htons(uint16_t hostshort);
 uint16_t ntohs(uint16_t netshort);
 uint32_t htonl(uint32_t hostlong);
 uint32_t ntohl(uint32_t netlong);
+
+// POSIX Signal Constants
+#define SIGHUP    1
+#define SIGINT    2
+#define SIGQUIT   3
+#define SIGILL    4
+#define SIGTRAP   5
+#define SIGABRT   6
+#define SIGBUS    7
+#define SIGFPE    8
+#define SIGKILL   9
+#define SIGUSR1   10
+#define SIGSEGV   11
+#define SIGUSR2   12
+#define SIGPIPE   13
+#define SIGALRM   14
+#define SIGTERM   15
+#define SIGCHLD   17
+#define SIGCONT   18
+#define SIGSTOP   19
+#define SIGTSTP   20
+#define NSIG      32
+
+typedef void (*sighandler_t)(int);
+#define SIG_DFL ((sighandler_t)0)
+#define SIG_IGN ((sighandler_t)1)
+#define SIG_ERR ((sighandler_t)-1)
+
+typedef uint32_t sigset_t;
+
+struct sigaction {
+    sighandler_t sa_handler;
+    sigset_t     sa_mask;
+    int          sa_flags;
+    void       (*sa_restorer)(void);
+};
+
+// POSIX Signal Syscall Wrappers & Standard APIs
+int          sys_kill(pid_t pid, int sig);
+sighandler_t sys_signal(int sig, sighandler_t handler, void (*restorer)(void));
+int          sys_sigaction(int sig, const struct sigaction* act, struct sigaction* oldact);
+void         sys_sigreturn(void);
+unsigned int sys_alarm(unsigned int seconds);
+int          sys_pause(void);
+
+sighandler_t signal(int sig, sighandler_t handler);
+int          sigaction(int sig, const struct sigaction* act, struct sigaction* oldact);
+int          kill(pid_t pid, int sig);
+unsigned int alarm(unsigned int seconds);
+int          pause(void);
+void         __sigreturn_trampoline(void);

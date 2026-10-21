@@ -311,6 +311,29 @@
   - `/bin/curl.elf`: Standalone HTTP/1.0 client; parses URL targets (`http://<ip>:<port>/<path>`), connects via BSD TCP socket, sends HTTP GET requests, parses HTTP status headers, and outputs response body directly to `stdout` (fully compatible with pipelines and redirections, e.g., `curl http://10.0.2.15/readme.txt | grep Storage`).
   - `/bin/httpd.elf`: Embedded HTTP/1.0 web server running in Ring 3; binds to port 80 (or custom port), accepts client TCP connections, serves files directly from the VFS filesystem, formats HTTP response headers (`200 OK`, `404 Not Found`, `Content-Length`), and supports single-shot testing mode (`--once`).
 
+### 14. POSIX Signals, User Stack Trampolines & Job Control (Phase 18)
+- **POSIX Signal Subsystem (`signal.h`, `task.h`, `task.c`):**
+  - Standard signals: `SIGHUP` (1), `SIGINT` (2), `SIGQUIT` (3), `SIGILL` (4), `SIGTRAP` (5), `SIGABRT` (6), `SIGBUS` (7), `SIGFPE` (8), `SIGKILL` (9), `SIGUSR1` (10), `SIGSEGV` (11), `SIGUSR2` (12), `SIGPIPE` (13), `SIGALRM` (14), `SIGTERM` (15), `SIGCHLD` (17), `SIGCONT` (18), `SIGSTOP` (19), `SIGTSTP` (20).
+  - Extended Task Control Block with `pending_signals`, `signal_mask`, `signal_handlers[32]`, `signal_restorers[32]`, and `alarm_ticks`.
+  - Uncatchable/unignorable signals: `SIGKILL` immediately terminates target task via `Task_Kill`.
+- **Asynchronous User Stack Frame Trampoline:**
+  - Before returning from interrupt/syscall to Ring 3 (`CS = 0x1B`), `Task_DeliverSignals` checks pending unmasked signals.
+  - Automatically forges a 16-byte aligned `SigFrame` on the user's stack containing the saved register context (`SigContext`), argument `sig`, and return address pointing to `__sigreturn_trampoline`.
+  - Redirects user `EIP` to the signal handler and user `ESP` to the forged frame.
+- **Context Restoration Syscall (`SYS_SIGRETURN`):**
+  - User handler completes with standard `ret`, popping into `__sigreturn_trampoline()`.
+  - Trampoline executes `int $0x80` (`SYS_SIGRETURN` 35), allowing the kernel to restore the exact pre-signal register state (`EIP`, `ESP`, general-purpose registers, segments, `EFLAGS`) without data or stack corruption.
+- **Alarm Timers, Job Control & Fault Redirection:**
+  - `SYS_ALARM` (36): sets an alarm in seconds; decremented by 100 Hz PIT timer, generating asynchronous `SIGALRM`.
+  - `SYS_PAUSE` (37): suspends task in `TASK_SLEEPING` state until any signal is delivered.
+  - Terminal `Ctrl+C`: PS/2 keyboard driver detects `Ctrl+C` combination and sends `SIGINT` to the active foreground process.
+  - Fault containment: `#PF` and `#GP` exceptions check for registered `SIGSEGV` / `SIGILL` user handlers before fallback termination.
+- **Multi-Cluster Subdirectory Traversal (`fat.c`):**
+  - Upgraded FAT12/FAT16 directory resolution (`FAT_FindFileInDir` and `FAT_ReadDir`) to follow the FAT cluster chain, lifting the 16-file directory limit and enabling unlimited binaries in `/bin`.
+- **Standalone Signal Utilities (`/bin/`):**
+  - `/bin/trap.elf`: Exercises custom handlers for `SIGUSR1` and `SIGUSR2`, sends signals to self via `kill`, verifies execution count, and resumes execution seamlessly.
+  - `/bin/alarm.elf`: Sets countdown timer with `alarm()`, suspends with `pause()`, catches `SIGALRM`, and cleanly exits.
+
 ---
 
 ## Memory Map Layout

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "signal.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -58,6 +59,14 @@ struct Task {
     // File Descriptor Table (POSIX VFS)
     int         fd_table[TASK_MAX_FDS];
 
+    // POSIX Signal Handling Fields
+    uint32_t    pending_signals;        // Bitmask of pending signals (1..31)
+    uint32_t    signal_mask;            // Blocked signals bitmask
+    uint32_t    signal_handlers[NSIG];  // User signal handler addresses
+    uint32_t    signal_restorers[NSIG]; // Restorer trampoline addresses
+    uint32_t    alarm_ticks;            // Alarm timer ticks countdown (0 = inactive)
+    bool        in_signal_handler;      // True if executing a signal handler
+
     // MLFQ Scheduling Fields
     uint8_t     priority;           // Current MLFQ level: 0, 1, or 2
     uint32_t    ticks_remaining;    // Remaining ticks in current quantum
@@ -81,6 +90,8 @@ void        Task_Yield(void);
 void        Task_Exit(void);
 void        Task_ExitWithCode(int32_t code);
 bool        Task_Kill(uint32_t pid);
+bool        Task_SendSignal(uint32_t pid, int sig);
+void        Task_DeliverSignals(Registers* regs);
 Registers*  Task_Schedule(Registers* currentRegs);
 Task*       Task_GetCurrent(void);
 bool        Task_IsActive(void);

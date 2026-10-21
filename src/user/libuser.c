@@ -1201,3 +1201,114 @@ uint32_t ntohl(uint32_t netlong)
 {
     return htonl(netlong);
 }
+
+int sys_kill(pid_t pid, int sig)
+{
+    int ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(32), "b"(pid), "c"(sig)
+        : "memory"
+    );
+    return ret;
+}
+
+sighandler_t sys_signal(int sig, sighandler_t handler, void (*restorer)(void))
+{
+    sighandler_t ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(33), "b"(sig), "c"(handler), "d"(restorer)
+        : "memory"
+    );
+    return ret;
+}
+
+int sys_sigaction(int sig, const struct sigaction* act, struct sigaction* oldact)
+{
+    int ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(34), "b"(sig), "c"(act), "d"(oldact)
+        : "memory"
+    );
+    return ret;
+}
+
+void sys_sigreturn(void)
+{
+    __asm__ volatile (
+        "int $0x80"
+        :
+        : "a"(35)
+        : "memory"
+    );
+}
+
+unsigned int sys_alarm(unsigned int seconds)
+{
+    unsigned int ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(36), "b"(seconds)
+        : "memory"
+    );
+    return ret;
+}
+
+int sys_pause(void)
+{
+    int ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(37)
+        : "memory"
+    );
+    return ret;
+}
+
+void __attribute__((naked)) __sigreturn_trampoline(void)
+{
+    __asm__ volatile (
+        "mov $35, %eax\n" // SYS_SIGRETURN
+        "int $0x80\n"
+    );
+}
+
+sighandler_t signal(int sig, sighandler_t handler)
+{
+    return sys_signal(sig, handler, __sigreturn_trampoline);
+}
+
+int sigaction(int sig, const struct sigaction* act, struct sigaction* oldact)
+{
+    struct sigaction real_act;
+    if (act)
+    {
+        real_act = *act;
+        if (!real_act.sa_restorer)
+            real_act.sa_restorer = __sigreturn_trampoline;
+        return sys_sigaction(sig, &real_act, oldact);
+    }
+    return sys_sigaction(sig, NULL, oldact);
+}
+
+int kill(pid_t pid, int sig)
+{
+    return sys_kill(pid, sig);
+}
+
+unsigned int alarm(unsigned int seconds)
+{
+    return sys_alarm(seconds);
+}
+
+int pause(void)
+{
+    return sys_pause();
+}

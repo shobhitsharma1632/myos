@@ -132,7 +132,14 @@ static void i686_Keyboard_ProcessScancode(uint8_t scancode)
 
             // Handle Ctrl+C or Ctrl+L combinations
             if (g_LCtrl && (c == 'c' || c == 'C'))
+            {
                 c = 0x03; // ETX / Interrupt signal
+                Task* cur = Task_GetCurrent();
+                if (cur && cur->is_user)
+                {
+                    Task_SendSignal(cur->id, SIGINT);
+                }
+            }
             else if (g_LCtrl && (c == 'l' || c == 'L'))
                 c = 0x0C; // Form Feed / Clear screen
 
