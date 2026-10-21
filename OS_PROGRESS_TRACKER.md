@@ -390,6 +390,45 @@ graph TD
     - Test 3: Asynchronous timer alarms & `pause()` suspension (`/bin/alarm.elf 1`).
     - Test 4: Default ignored signals (`SIGCHLD`).
 
+### Phase 19: Graphical Window Server & Application Ecosystem
+- [x] **Step 19.1:** Display Server Architecture & 2D Blitter Engine (`gfx.h`, `gfx.c`):
+  - Implemented `GFX_BlitBuffer(destX, destY, srcBuffer, srcWidth, srcHeight)` with clipping rectangle intersection and line-by-line `memcpy` accelerated blitting into the double-buffered linear framebuffer.
+- [x] **Step 19.2:** Client Window Architecture & Shared Backbuffers (`gui.h`, `gui.c`):
+  - Extended `GUI_Window` with `owner_pid`, `phys_buffer`, `user_virt_buffer`, `buffer_pages`, `client_w`, `client_h`, and `is_damaged`.
+  - Implemented `GUI_CreateClientWindow(owner_pid, title, x, y, width, height)`:
+    - Allocates physical frames via `PMM_AllocatePages`.
+    - Maps pages directly into user address space (`0x60000000 + (win_id * 0x400000)`) with `PAGE_PRESENT | PAGE_WRITE | PAGE_USER`.
+    - Enables zero-copy client rendering directly into window pixel memory.
+  - Upgraded compositor `GUI_DrawWindow` to blit client backbuffers directly into compositor frames.
+  - Implemented automatic GUI activation when client windows are created.
+- [x] **Step 19.3:** Input Event Queue Routing & Window Lifecycle (`gui.h`, `gui.c`):
+  - Designed per-window circular event FIFO (`gui_event_t event_queue[32]`) supporting `GUI_EVENT_MOUSE_DOWN`, `GUI_EVENT_MOUSE_UP`, `GUI_EVENT_MOUSE_MOVE`, `GUI_EVENT_KEY_DOWN`, `GUI_EVENT_FOCUS`, `GUI_EVENT_BLUR`, and `GUI_EVENT_CLOSE`.
+  - Implemented `GUI_EnqueueEvent` and `GUI_DequeueEvent`.
+  - Routed mouse clicks, releases, dragging, and keyboard characters to the focused client window.
+  - Implemented `GUI_CleanupProcessWindows(pid)` integrated into scheduler task reaper (`task.c`), cleanly reclaiming all window resources when user processes exit.
+- [x] **Step 19.4:** System Calls & User Runtime (`syscall.h`, `syscall.c`, `libuser.h`, `libuser.c`):
+  - Implemented GUI system calls: `SYS_GUI_CREATE_WIN` (38), `SYS_GUI_DESTROY_WIN` (39), `SYS_GUI_POLL_EVENT` (40), `SYS_GUI_DAMAGE` (41), `SYS_GUI_MAP_BUFFER` (42).
+  - Added user library wrappers `sys_gui_create_win`, `sys_gui_destroy_win`, `sys_gui_poll_event`, `sys_gui_damage`, and `sys_gui_map_buffer`.
+- [x] **Step 19.5:** User-Space Client GUI Toolkit Library (`libgui.h`, `libgui.c`):
+  - Implemented `gui_window_t` lifecycle (`gui_create_window`, `gui_destroy_window`, `gui_poll_event`, `gui_present`, `gui_damage`).
+  - Implemented 2D drawing primitives: `gui_put_pixel`, `gui_get_pixel`, `gui_clear`, `gui_draw_line`, `gui_draw_rect`, `gui_fill_rect`, `gui_draw_circle`, `gui_fill_circle`.
+  - Implemented embedded 8x8 font rendering: `gui_draw_char`, `gui_draw_text`.
+- [x] **Step 19.6:** Standalone Ring 3 Graphical Applications (`notepad.c`, `sysmon.c`, `paint.c`):
+  - Created `/bin/notepad.elf`: Interactive graphical text editor with menu bar, text buffer, line wrapping, cursor navigation, backspace, and status bar.
+  - Created `/bin/sysmon.elf`: Real-time system performance monitor with dynamic MLFQ task load meters, physical memory gauges, and uptime clock.
+  - Created `/bin/paint.elf`: Interactive 2D canvas with mouse drag drawing, 8-color swatch palette, and clear button.
+- [x] **Step 19.7:** Build Automation & Concurrency Verification:
+  - Updated `src/user/CMakeLists.txt` and root `CMakeLists.txt` to compile `libgui.c`, build the 3 GUI applications, and install them into `::bin/` on the floppy disk image.
+  - Automated verification suite in `main.c` testing:
+    - Test 1: Window Server Initialization & Client Window Creation (`sys_gui_create_win`).
+    - Test 2: Shared Backbuffer Rendering & Compositor Blit Verification.
+    - Test 3: Hardware / Compositor Input Event Routing (`GUI_EVENT_MOUSE_DOWN`, `GUI_EVENT_KEY_DOWN`).
+    - Test 4a: `/bin/notepad.elf` execution in Ring 3 user mode.
+    - Test 4b: `/bin/sysmon.elf` execution in Ring 3 user mode.
+    - Test 4c: `/bin/paint.elf` execution in Ring 3 user mode.
+    - Test 5: Window Destruction and Process Cleanup.
+  - Shell demonstration executed `notepad.elf`, `sysmon.elf`, and `paint.elf` with clean exits and zero leaks.
+
 ---
 
 ## 4. Change History & Progress Log
@@ -416,6 +455,7 @@ graph TD
 | **2026-10-20** | **Phase 16 Complete** | Implemented POSIX Pipes, File Redirection, and Inter-Process Communication (IPC). Created circular pipe buffer (`pipe.h`, `pipe.c`) with reader/writer ref counting and cooperative blocking; virtualized per-task file descriptors (`fd_table[16]`) with fork/spawn inheritance and centralized open file table (`g_OpenFiles[64]`); added syscalls `SYS_PIPE` (22), `SYS_DUP` (23), `SYS_DUP2` (24); upgraded `cat`, `wc`, `grep` to read from stdin; created standalone utilities `/bin/tee.elf` and `/bin/head.elf`; implemented multi-stage pipeline parser (`|`) and redirection parser (`<`, `>`, `>>`) in user subshell `sh.c` and kernel shell `shell.c`. | **Verified in QEMU:** All Phase 16 automated tests passed 100%: Test 1 (Kernel Pipe IPC data transfer), Test 2 (EOF detection on writer closure), Test 3 (`dup2` stdout redirection to file), Test 4 (Ring 3 subshell pipeline `cat /readme.txt | grep Storage`), Test 5 (Multi-stage pipeline `cat /readme.txt | grep Phase | wc` producing `2 20 132`), Test 6 (Standalone `head -n 2` and `tee` creating `/tee_out.txt`); interactive shell executed pipelines `cat /readme.txt | grep Storage`, `cat /readme.txt | grep Phase | wc`, and `head -n 2 /readme.txt` cleanly with zero leaks. |
 | **2026-10-21** | **Phase 17 Complete** | Implemented RFC 793 TCP protocol stack (`tcp.c`/`tcp.h`) with 32-socket pool, pseudo-header checksum, 3-way handshake, payload streaming, and graceful teardown; VFS socket abstraction (`VFS_TYPE_SOCKET`) integrated with `vfs_read`, `vfs_write`, `vfs_close`; BSD socket syscalls `SYS_SOCKET` (25) through `SYS_RECV` (31); user C library BSD socket API; standalone applications `/bin/curl.elf` and `/bin/httpd.elf`; optimized kernel stack usage across net subsystem and increased `TASK_STACK_SIZE` to 16 KiB. | **Verified in QEMU:** All Phase 17 automated tests passed 100%: Test 1 (Socket Create, Bind, Listen), Test 2 (TCP 3-Way Handshake SYN/SYN-ACK/ACK), Test 3 (Full-Duplex Data Streaming), Test 4 (Graceful Teardown FIN/ACK/CLOSED), Tests 5 & 6 (User-Space Web Server `u_httpd` and Client `u_curl` transferring `/readme.txt` over Ring 3 TCP). `ShellDemo` and 1024x768 GUI desktop verified operational with zero heap corruption or leaks over 85,000+ ticks. |
 | **2026-10-21** | **Phase 18 Complete** | Implemented POSIX signals architecture (`signal.h`, `task.c`, `isr.c`); user stack signal trampoline (`SigFrame`, `SigContext`); syscalls `SYS_KILL` (32), `SYS_SIGNAL` (33), `SYS_SIGACTION` (34), `SYS_SIGRETURN` (35), `SYS_ALARM` (36), `SYS_PAUSE` (37); terminal `Ctrl+C` `SIGINT` generation; hardware fault routing (`#PF`/`#GP` -> `SIGSEGV`/`SIGILL`); upgraded FAT filesystem with multi-cluster directory traversal (`fat.c`); standalone user binaries `/bin/trap.elf` and `/bin/alarm.elf`. | **Verified in QEMU:** All Phase 18 automated tests passed 100%: Test 1 (Inter-process `SIGKILL` termination), Test 2 (`/bin/trap.elf` handling `SIGUSR1`/`SIGUSR2` and restoring context via `sigreturn`), Test 3 (`/bin/alarm.elf` catching `SIGALRM` and resuming from `pause()`), Test 4 (Default ignored `SIGCHLD`). Interactive shell verified `kill <pid> [sig]`, `exec /bin/trap.elf`, and `exec /bin/alarm.elf 1`. |
+| **2026-10-21** | **Phase 19 Complete** | Implemented Graphical Window Server & Application Ecosystem (`gfx.h`/`gfx.c`, `gui.h`/`gui.c`); accelerated buffer blitting (`GFX_BlitBuffer`); zero-copy client window shared backbuffers mapped at `0x60000000 + ID*0x400000`; per-window circular event queues (`gui_event_t`); hardware mouse motion/click and keyboard routing; GUI syscalls `SYS_GUI_CREATE_WIN` (38) through `SYS_GUI_MAP_BUFFER` (42); user C library GUI wrappers; user-space GUI Toolkit library (`libgui.h`, `libgui.c`); standalone Ring 3 GUI applications (`/bin/notepad.elf`, `/bin/sysmon.elf`, `/bin/paint.elf`). | **Verified in QEMU:** All Phase 19 automated and shell tests passed 100%: Test 1 (Window Server initialization & client window creation), Test 2 (Zero-copy shared backbuffer rendering & compositor blitting), Test 3 (Mouse and keyboard event queue routing), Test 4 (Ring 3 execution of `/bin/notepad.elf`, `/bin/sysmon.elf`, and `/bin/paint.elf`), Test 5 (Clean window destruction and process reaper reclamation). Interactive `ShellDemo` and 1024x768 GUI desktop verified operational with zero memory leaks. |
 
 
 

@@ -42,6 +42,35 @@
 #define SYS_SIGRETURN   35  // Return from signal handler (restores user context)
 #define SYS_ALARM       36  // Set alarm timer (ebx = seconds)
 #define SYS_PAUSE       37  // Wait for signal (suspends until signal caught)
+#define SYS_GUI_CREATE_WIN  38  // Create GUI client window (ebx = title, ecx = (w << 16)|h, edx = (x << 16)|(y & 0xFFFF))
+#define SYS_GUI_DESTROY_WIN 39  // Destroy GUI client window (ebx = win_id)
+#define SYS_GUI_POLL_EVENT  40  // Poll GUI event (ebx = win_id, ecx = gui_event_t*)
+#define SYS_GUI_DAMAGE      41  // Damage / invalidate window rect (ebx = win_id, ecx = (x << 16)|y, edx = (w << 16)|h)
+#define SYS_GUI_MAP_BUFFER  42  // Get user-accessible backbuffer pointer (ebx = win_id)
+
+#ifndef _GUI_EVENT_T_DEFINED
+#define _GUI_EVENT_T_DEFINED
+#define GUI_EVENT_NONE         0
+#define GUI_EVENT_MOUSE_DOWN   1
+#define GUI_EVENT_MOUSE_UP     2
+#define GUI_EVENT_MOUSE_MOVE   3
+#define GUI_EVENT_KEY_DOWN     4
+#define GUI_EVENT_KEY_UP       5
+#define GUI_EVENT_FOCUS        6
+#define GUI_EVENT_BLUR         7
+#define GUI_EVENT_CLOSE        8
+
+typedef struct {
+    uint32_t type;          // GUI_EVENT_*
+    uint32_t window_id;     // Target window ID
+    int32_t  mouse_x;       // Relative to client area
+    int32_t  mouse_y;       // Relative to client area
+    uint32_t button;        // 1 = Left, 2 = Right
+    uint32_t key_char;      // ASCII character
+    uint32_t key_code;      // Key scancode / code
+    uint32_t modifiers;     // Shift, Ctrl, Alt
+} gui_event_t;
+#endif
 
 #define AF_UNSPEC 0
 #define AF_UNIX   1

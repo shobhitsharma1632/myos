@@ -334,6 +334,24 @@
   - `/bin/trap.elf`: Exercises custom handlers for `SIGUSR1` and `SIGUSR2`, sends signals to self via `kill`, verifies execution count, and resumes execution seamlessly.
   - `/bin/alarm.elf`: Sets countdown timer with `alarm()`, suspends with `pause()`, catches `SIGALRM`, and cleanly exits.
 
+### 15. Graphical Window Server & Application Ecosystem (Phase 19)
+- **Client-Server Display Architecture & Accelerated Blitting (`gui.c`, `gfx.c`):**
+  - Evolved the graphical environment from static in-kernel drawing to a true display server architecture inspired by X11 and Wayland.
+  - Implemented `GFX_BlitBuffer` with clipping rectangle intersections and line-by-line `memcpy` accelerated blitting into the double-buffered linear framebuffer.
+- **Shared Memory Backbuffers & Zero-Copy Rendering:**
+  - Dedicated client windows allocate physical frames via `PMM_AllocatePages` and map them into the client user address space at `0x60000000 + (win_id * 0x400000)` with `PAGE_PRESENT | PAGE_WRITE | PAGE_USER`.
+  - Client applications render directly into their backbuffers with zero system call overhead per pixel or primitive.
+- **Input Event Routing & Process Lifecycle Reclamation:**
+  - Per-window circular event FIFO queues (`gui_event_t`) dispatching `GUI_EVENT_MOUSE_DOWN`, `GUI_EVENT_MOUSE_UP`, `GUI_EVENT_MOUSE_MOVE`, `GUI_EVENT_KEY_DOWN`, `GUI_EVENT_FOCUS`, `GUI_EVENT_BLUR`, and `GUI_EVENT_CLOSE`.
+  - Automatic reclamation via `GUI_CleanupProcessWindows(pid)` in the scheduler task reaper.
+- **System Calls & User GUI Toolkit (`libgui.h`, `libgui.c`):**
+  - System calls: `SYS_GUI_CREATE_WIN` (38), `SYS_GUI_DESTROY_WIN` (39), `SYS_GUI_POLL_EVENT` (40), `SYS_GUI_DAMAGE` (41), `SYS_GUI_MAP_BUFFER` (42).
+  - High-level C library providing window lifecycle management, 2D drawing primitives (lines, rectangles, circles, alpha blending), and embedded 8x8 font rendering.
+- **Standalone Ring 3 GUI Applications (`/bin/`):**
+  - `/bin/notepad.elf`: Interactive graphical text editor with menu bar, text buffer, line wrapping, cursor navigation, backspace, and status bar.
+  - `/bin/sysmon.elf`: Real-time system performance monitor with dynamic MLFQ task load meters, physical memory gauges, and uptime clock.
+  - `/bin/paint.elf`: Interactive 2D canvas with mouse drag drawing, 8-color swatch palette, and clear button.
+
 ---
 
 ## Memory Map Layout
@@ -393,7 +411,8 @@ myos/
 │   │   ├── crt0.asm            # User-space C runtime startup
 │   │   ├── linker.ld           # User application linker script (0x40000000)
 │   │   ├── libuser.h/c         # Standard user library and syscall wrappers
-│   │   └── apps/               # Standalone applications (hello, calc, counter, cat, wc, grep, sh, snake, ifconfig, ping, tee, head)
+│   │   ├── libgui.h/c          # Graphical UI client toolkit library (2D engine & event queue)
+│   │   └── apps/               # Standalone applications (hello, calc, counter, cat, wc, grep, sh, snake, ifconfig, ping, tee, head, curl, httpd, alarm, trap, notepad, sysmon, paint)
 │   └── libs/
 │       └── boot/
 │           └── bootparams.h    # Shared Stage 2 <-> Kernel boot data contract

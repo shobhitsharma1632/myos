@@ -23,6 +23,16 @@ add_custom_command(
     COMMENT "Compiling libuser.c"
 )
 
+# Compile libgui.c
+set(LIBGUI_C "${CMAKE_CURRENT_SOURCE_DIR}/libgui.c")
+set(LIBGUI_OBJ "${CMAKE_CURRENT_BINARY_DIR}/libgui.obj")
+add_custom_command(
+    OUTPUT ${LIBGUI_OBJ}
+    COMMAND ${CMAKE_C_COMPILER} ${USER_CFLAGS} -c -o ${LIBGUI_OBJ} ${LIBGUI_C}
+    DEPENDS ${LIBGUI_C} "${CMAKE_CURRENT_SOURCE_DIR}/libgui.h" "${CMAKE_CURRENT_SOURCE_DIR}/libuser.h"
+    COMMENT "Compiling libgui.c"
+)
+
 # Macro to build a user application ELF
 macro(build_user_app app_name)
     set(APP_C "${CMAKE_CURRENT_SOURCE_DIR}/apps/${app_name}.c")
@@ -32,14 +42,14 @@ macro(build_user_app app_name)
     add_custom_command(
         OUTPUT ${APP_OBJ}
         COMMAND ${CMAKE_C_COMPILER} ${USER_CFLAGS} -c -o ${APP_OBJ} ${APP_C}
-        DEPENDS ${APP_C} "${CMAKE_CURRENT_SOURCE_DIR}/libuser.h"
+        DEPENDS ${APP_C} "${CMAKE_CURRENT_SOURCE_DIR}/libuser.h" "${CMAKE_CURRENT_SOURCE_DIR}/libgui.h"
         COMMENT "Compiling user app: ${app_name}.c"
     )
 
     add_custom_command(
         OUTPUT ${APP_ELF}
-        COMMAND ${CMAKE_C_COMPILER} ${USER_LINKFLAGS} -o ${APP_ELF} ${CRT0_OBJ} ${APP_OBJ} ${LIBUSER_OBJ} -lgcc
-        DEPENDS ${CRT0_OBJ} ${APP_OBJ} ${LIBUSER_OBJ} "${CMAKE_CURRENT_SOURCE_DIR}/linker.ld"
+        COMMAND ${CMAKE_C_COMPILER} ${USER_LINKFLAGS} -o ${APP_ELF} ${CRT0_OBJ} ${APP_OBJ} ${LIBUSER_OBJ} ${LIBGUI_OBJ} -lgcc
+        DEPENDS ${CRT0_OBJ} ${APP_OBJ} ${LIBUSER_OBJ} ${LIBGUI_OBJ} "${CMAKE_CURRENT_SOURCE_DIR}/linker.ld"
         COMMENT "Linking user app: ${app_name}.elf"
     )
 
@@ -64,6 +74,9 @@ build_user_app(curl)
 build_user_app(httpd)
 build_user_app(alarm)
 build_user_app(trap)
+build_user_app(notepad)
+build_user_app(sysmon)
+build_user_app(paint)
 
 set(ALL_USER_ELFS ${ALL_USER_ELFS} PARENT_SCOPE)
 add_custom_target(user_apps ALL DEPENDS ${ALL_USER_ELFS})

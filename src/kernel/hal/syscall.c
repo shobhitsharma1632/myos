@@ -6,6 +6,7 @@
 #include <hal/vmm.h>
 #include <hal/pmm.h>
 #include <hal/vfs.h>
+#include <hal/gui.h>
 #include <net/net.h>
 #include <net/icmp.h>
 #include <net/udp.h>
@@ -716,6 +717,114 @@ void Syscall_Handler(Registers* regs)
             current->wake_tick = 0xFFFFFFFF; // Suspended until woken by a signal
             Syscall_RequestYield();
             regs->eax = (uint32_t)-1; // POSIX pause() always returns -1 with EINTR
+            break;
+        }
+
+        case SYS_GUI_CREATE_WIN:
+        {
+            const char* title = (const char*)arg1;
+            uint32_t dims = arg2; // (width << 16) | (height & 0xFFFF)
+            uint32_t pos  = arg3; // (x << 16) | (y & 0xFFFF)
+
+            int32_t width  = (int32_t)(dims >> 16);
+            int32_t height = (int32_t)(dims & 0xFFFF);
+            int32_t x      = (int16_t)(pos >> 16);
+            int32_t y      = (int16_t)(pos & 0xFFFF);
+
+            uint32_t pid = current ? current->id : 0;
+            GUI_Window* win = GUI_CreateClientWindow(pid, title, x, y, width, height);
+            if (win)
+            {
+                regs->eax = win->id;
+            }
+            else
+            {
+                regs->eax = (uint32_t)-1;
+            }
+            break;
+        }
+
+        case SYS_GUI_DESTROY_WIN:
+        {
+            uint32_t win_id = arg1;
+            GUI_Window* win = GUI_FindWindowById(win_id);
+            if (win && (current == NULL || win->owner_pid == current->id))
+            {
+                GUI_DestroyWindow(win);
+                regs->eax = 0;
+            }
+            else
+            {
+                regs->eax = (uint32_t)-1;
+            }
+            break;
+        }
+
+        case SYS_GUI_POLL_EVENT:
+        {
+            uint32_t win_id = arg1;
+            gui_event_t* u_ev = (gui_event_t*)arg2;
+            if (!u_ev)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            GUI_Window* win = GUI_FindWindowById(win_id);
+            if (!win)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+
+            gui_event_t ev;
+            if (GUI_DequeueEvent(win, &ev))
+            {
+                memcpy(u_ev, &ev, sizeof(gui_event_t));
+                regs->eax = 1;
+            }
+            else
+            {
+                regs->eax = 0;
+            }
+            break;
+        }
+
+        case SYS_GUI_DAMAGE:
+        {
+            uint32_t win_id = arg1;
+            uint32_t pos = arg2;
+            uint32_t dims = arg3;
+            int32_t x = (int16_t)(pos >> 16);
+            int32_t y = (int16_t)(pos & 0xFFFF);
+            int32_t w = (int32_t)(dims >> 16);
+            int32_t h = (int32_t)(dims & 0xFFFF);
+
+            GUI_Window* win = GUI_FindWindowById(win_id);
+            if (win)
+            {
+                GUI_DamageWindow(win, x, y, w, h);
+                regs->eax = 0;
+            }
+            else
+            {
+                regs->eax = (uint32_t)-1;
+            }
+            break;
+        }
+
+        case SYS_GUI_MAP_BUFFER:
+        {
+            uint32_t win_id = arg1;
+            GUI_Window* win = GUI_FindWindowById(win_id);
+            if (win)
+            {
+                regs->eax = win->user_virt_buffer;
+            }
+            else
+            {
+                regs->eax = 0;
+            }
             break;
         }
 

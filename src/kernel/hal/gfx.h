@@ -48,4 +48,6 @@ void GFX_FillCircle(int32_t xc, int32_t yc, int32_t r, uint32_t color);
 void GFX_DrawChar(int32_t x, int32_t y, char c, uint32_t fgColor, uint32_t bgColor);
 void GFX_DrawString(int32_t x, int32_t y, const char* str, uint32_t fgColor, uint32_t bgColor);
 
+void GFX_BlitBuffer(int32_t destX, int32_t destY, const uint32_t* srcBuffer, int32_t srcWidth, int32_t srcHeight);
+
 void GFX_DrawCursor(int32_t x, int32_t y);

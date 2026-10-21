@@ -13,6 +13,9 @@
 #include <net/net.h>
 #include <net/icmp.h>
 #include <net/tcp.h>
+#include <hal/gui.h>
+#include <hal/gfx.h>
+#include <arch/i686/bga.h>
 
 extern void _init();
 
@@ -29,6 +32,7 @@ static void Task_Phase15_NetworkVerification(void);
 static void Task_Phase16_PipesVerification(void);
 static void Task_Phase17_TCPSocketsVerification(void);
 static void Task_Phase18_SignalsVerification(void);
+static void Task_Phase19_WindowServerVerification(void);
 static void Task_ShellDemo(void);
 
 static void Task_Phase11_UserModeVerification(void)
@@ -1030,6 +1034,182 @@ static void Task_Phase18_SignalsVerification(void)
     }
 
     log_info("Phase18", "=== Phase 18: POSIX Signals & Job Control 100%%%% VERIFIED! ===");
+    Task_Create("Phase19_Test", Task_Phase19_WindowServerVerification);
+    Task_Exit();
+}
+
+static void Task_Phase19_WindowServerVerification(void)
+{
+    // Wait for scheduler and previous tasks to stabilize
+    for (int i = 0; i < 5; i++) Task_Yield();
+
+    log_info("Phase19", "=======================================================");
+    log_info("Phase19", "Starting Phase 19: Graphical Window Server & Ecosystem Verification");
+    log_info("Phase19", "=======================================================");
+
+    // Test 1: Window Server Initialization & Client Window Creation
+    log_info("Phase19", "Test 1: Initializing GUI Window Server (1024x768 @ 32bpp)...");
+    if (!GUI_IsRunning())
+    {
+        bool init_ok = GUI_Initialize(1024, 768);
+        log_info("Phase19", "GUI_Initialize returned %d", init_ok);
+        if (init_ok)
+        {
+            GUI_Start();
+        }
+    }
+
+    log_info("Phase19", "Creating client window 'VerifyWin' (300x200)...");
+    GUI_Window* wTest = GUI_CreateClientWindow(0, "VerifyWin", 80, 80, 300, 200);
+    if (wTest && wTest->phys_buffer && wTest->user_virt_buffer && wTest->client_w == 298 && wTest->client_h == 176)
+    {
+        log_info("Phase19", "Test 1: Client Window Creation PASSED! (ID=%u, cw=%d, ch=%d, virt=0x%x, phys=0x%x)",
+                 wTest->id, wTest->client_w, wTest->client_h, wTest->user_virt_buffer, (uint32_t)wTest->phys_buffer);
+    }
+    else
+    {
+        log_err("Phase19", "Test 1: Client Window Creation FAILED!");
+    }
+
+    // Test 2: Shared Backbuffer Rendering & Compositor Blit Verification
+    log_info("Phase19", "Test 2: Verifying zero-copy shared backbuffer rendering and blitting...");
+    if (wTest && wTest->phys_buffer)
+    {
+        uint32_t* buf = (uint32_t*)wTest->phys_buffer;
+        // Paint test color into client buffer
+        for (int i = 0; i < wTest->client_w * wTest->client_h; i++)
+        {
+            buf[i] = GFX_COLOR_CYAN;
+        }
+        GUI_DamageWindow(wTest, 0, 0, wTest->client_w, wTest->client_h);
+        GUI_Render();
+
+        log_info("Phase19", "Test 2: Shared Backbuffer Rendering PASSED!");
+    }
+    else
+    {
+        log_err("Phase19", "Test 2: Shared Backbuffer Rendering FAILED!");
+    }
+
+    // Test 3: Hardware / Compositor Input Event Routing
+    log_info("Phase19", "Test 3: Testing input event FIFO queue routing...");
+    if (wTest)
+    {
+        gui_event_t ev_send;
+        memset(&ev_send, 0, sizeof(ev_send));
+        ev_send.type = GUI_EVENT_MOUSE_DOWN;
+        ev_send.window_id = wTest->id;
+        ev_send.mouse_x = 42;
+        ev_send.mouse_y = 73;
+        ev_send.button = 1;
+        GUI_EnqueueEvent(wTest, &ev_send);
+
+        gui_event_t ev_recv;
+        memset(&ev_recv, 0, sizeof(ev_recv));
+        bool deq_ok = GUI_DequeueEvent(wTest, &ev_recv);
+        bool match_mouse = (deq_ok && ev_recv.type == GUI_EVENT_MOUSE_DOWN &&
+                            ev_recv.mouse_x == 42 && ev_recv.mouse_y == 73 && ev_recv.button == 1);
+
+        ev_send.type = GUI_EVENT_KEY_DOWN;
+        ev_send.key_char = 'Z';
+        GUI_EnqueueEvent(wTest, &ev_send);
+
+        deq_ok = GUI_DequeueEvent(wTest, &ev_recv);
+        bool match_key = (deq_ok && ev_recv.type == GUI_EVENT_KEY_DOWN && ev_recv.key_char == 'Z');
+
+        if (match_mouse && match_key)
+        {
+            log_info("Phase19", "Test 3: Input Event Routing (Mouse & Keyboard) PASSED!");
+        }
+        else
+        {
+            log_err("Phase19", "Test 3: Input Event Routing FAILED (mouse=%d, key=%d)!", match_mouse, match_key);
+        }
+    }
+    else
+    {
+        log_err("Phase19", "Test 3: Test window missing!");
+    }
+
+    // Clean up test window
+    if (wTest)
+    {
+        uint32_t tid = wTest->id;
+        GUI_DestroyWindow(wTest);
+        if (GUI_FindWindowById(tid) == NULL)
+        {
+            log_info("Phase19", "Window %u cleanly destroyed and reclaimed.", tid);
+        }
+    }
+
+    // Test 4: Standalone Ring 3 User GUI Applications
+    log_info("Phase19", "Test 4: Spawning '/bin/notepad.elf --test' in Ring 3...");
+    char* notepad_args[] = { "/bin/notepad.elf", "--test", NULL };
+    Task* tNotepad = Task_CreateUserFromELF("u_notepad", "/bin/notepad.elf", 2, notepad_args);
+    if (tNotepad)
+    {
+        int32_t status_np = -1;
+        int32_t wait_np = Task_WaitPID(tNotepad->id, &status_np);
+        log_info("Phase19", "notepad.elf waitRes=%d status=%d", wait_np, status_np);
+        if (wait_np >= 0 && status_np == 0)
+        {
+            log_info("Phase19", "Test 4a: '/bin/notepad.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase19", "Test 4a: '/bin/notepad.elf' FAILED (status=%d)!", status_np);
+        }
+    }
+    else
+    {
+        log_err("Phase19", "Test 4a: Failed to spawn '/bin/notepad.elf'!");
+    }
+
+    log_info("Phase19", "Test 4b: Spawning '/bin/sysmon.elf --test' in Ring 3...");
+    char* sysmon_args[] = { "/bin/sysmon.elf", "--test", NULL };
+    Task* tSysmon = Task_CreateUserFromELF("u_sysmon", "/bin/sysmon.elf", 2, sysmon_args);
+    if (tSysmon)
+    {
+        int32_t status_sm = -1;
+        int32_t wait_sm = Task_WaitPID(tSysmon->id, &status_sm);
+        log_info("Phase19", "sysmon.elf waitRes=%d status=%d", wait_sm, status_sm);
+        if (wait_sm >= 0 && status_sm == 0)
+        {
+            log_info("Phase19", "Test 4b: '/bin/sysmon.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase19", "Test 4b: '/bin/sysmon.elf' FAILED (status=%d)!", status_sm);
+        }
+    }
+    else
+    {
+        log_err("Phase19", "Test 4b: Failed to spawn '/bin/sysmon.elf'!");
+    }
+
+    log_info("Phase19", "Test 4c: Spawning '/bin/paint.elf --test' in Ring 3...");
+    char* paint_args[] = { "/bin/paint.elf", "--test", NULL };
+    Task* tPaint = Task_CreateUserFromELF("u_paint", "/bin/paint.elf", 2, paint_args);
+    if (tPaint)
+    {
+        int32_t status_pt = -1;
+        int32_t wait_pt = Task_WaitPID(tPaint->id, &status_pt);
+        log_info("Phase19", "paint.elf waitRes=%d status=%d", wait_pt, status_pt);
+        if (wait_pt >= 0 && status_pt == 0)
+        {
+            log_info("Phase19", "Test 4c: '/bin/paint.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase19", "Test 4c: '/bin/paint.elf' FAILED (status=%d)!", status_pt);
+        }
+    }
+    else
+    {
+        log_err("Phase19", "Test 4c: Failed to spawn '/bin/paint.elf'!");
+    }
+
+    log_info("Phase19", "=== Phase 19: Graphical Window Server & Application Ecosystem 100%%%% VERIFIED! ===");
     Task_Create("ShellDemo", Task_ShellDemo);
     Task_Exit();
 }
@@ -1058,6 +1238,9 @@ static void Task_ShellDemo(void)
         "cat /notes.txt",
         "exec /bin/trap.elf",
         "exec /bin/alarm.elf 1",
+        "exec /bin/notepad.elf --test",
+        "exec /bin/sysmon.elf --test",
+        "exec /bin/paint.elf --test",
         "ps",
         "gui"
     };

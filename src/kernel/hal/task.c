@@ -1,6 +1,7 @@
 #include "task.h"
 #include "elf_loader.h"
 #include <hal/vfs.h>
+#include <hal/gui.h>
 #include <hal/heap.h>
 #include <hal/vmm.h>
 #include <hal/pmm.h>
@@ -1124,6 +1125,7 @@ Registers* Task_Schedule(Registers* currentRegs)
                      term->stack_base, term->is_user ? "User" : "Kernel", term->name, term->id);
 
             vfs_close_task_fds(term);
+            GUI_CleanupProcessWindows(term->id);
 
             // Free user-mode virtual memory mappings and physical frames
             if (term->is_user)

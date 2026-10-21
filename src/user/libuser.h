@@ -259,3 +259,40 @@ int          kill(pid_t pid, int sig);
 unsigned int alarm(unsigned int seconds);
 int          pause(void);
 void         __sigreturn_trampoline(void);
+
+// GUI Subsystem Syscalls & Events
+#define SYS_GUI_CREATE_WIN  38
+#define SYS_GUI_DESTROY_WIN 39
+#define SYS_GUI_POLL_EVENT  40
+#define SYS_GUI_DAMAGE      41
+#define SYS_GUI_MAP_BUFFER  42
+
+#ifndef _GUI_EVENT_T_DEFINED
+#define _GUI_EVENT_T_DEFINED
+#define GUI_EVENT_NONE         0
+#define GUI_EVENT_MOUSE_DOWN   1
+#define GUI_EVENT_MOUSE_UP     2
+#define GUI_EVENT_MOUSE_MOVE   3
+#define GUI_EVENT_KEY_DOWN     4
+#define GUI_EVENT_KEY_UP       5
+#define GUI_EVENT_FOCUS        6
+#define GUI_EVENT_BLUR         7
+#define GUI_EVENT_CLOSE        8
+
+typedef struct {
+    uint32_t type;          // GUI_EVENT_*
+    uint32_t window_id;     // Target window ID
+    int32_t  mouse_x;       // Relative to client area
+    int32_t  mouse_y;       // Relative to client area
+    uint32_t button;        // 1 = Left, 2 = Right
+    uint32_t key_char;      // ASCII character
+    uint32_t key_code;      // Key scancode / code
+    uint32_t modifiers;     // Shift, Ctrl, Alt
+} gui_event_t;
+#endif
+
+int   sys_gui_create_win(const char* title, int x, int y, int width, int height);
+int   sys_gui_destroy_win(int win_id);
+int   sys_gui_poll_event(int win_id, gui_event_t* ev);
+int   sys_gui_damage(int win_id, int x, int y, int w, int h);
+void* sys_gui_map_buffer(int win_id);

@@ -1312,3 +1312,67 @@ int pause(void)
 {
     return sys_pause();
 }
+
+int sys_gui_create_win(const char* title, int x, int y, int width, int height)
+{
+    uint32_t dims = ((uint32_t)(width & 0xFFFF) << 16) | (uint32_t)(height & 0xFFFF);
+    uint32_t pos  = ((uint32_t)((uint16_t)x) << 16) | (uint32_t)((uint16_t)y);
+    int ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(SYS_GUI_CREATE_WIN), "b"(title), "c"(dims), "d"(pos)
+        : "memory"
+    );
+    return ret;
+}
+
+int sys_gui_destroy_win(int win_id)
+{
+    int ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(SYS_GUI_DESTROY_WIN), "b"(win_id)
+        : "memory"
+    );
+    return ret;
+}
+
+int sys_gui_poll_event(int win_id, gui_event_t* ev)
+{
+    int ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(SYS_GUI_POLL_EVENT), "b"(win_id), "c"(ev)
+        : "memory"
+    );
+    return ret;
+}
+
+int sys_gui_damage(int win_id, int x, int y, int w, int h)
+{
+    uint32_t pos  = ((uint32_t)((uint16_t)x) << 16) | (uint32_t)((uint16_t)y);
+    uint32_t dims = ((uint32_t)(w & 0xFFFF) << 16) | (uint32_t)(h & 0xFFFF);
+    int ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(SYS_GUI_DAMAGE), "b"(win_id), "c"(pos), "d"(dims)
+        : "memory"
+    );
+    return ret;
+}
+
+void* sys_gui_map_buffer(int win_id)
+{
+    void* ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(SYS_GUI_MAP_BUFFER), "b"(win_id)
+        : "memory"
+    );
+    return ret;
+}

@@ -422,6 +422,39 @@ void GFX_DrawString(int32_t x, int32_t y, const char* str, uint32_t fgColor, uin
     }
 }
 
+void GFX_BlitBuffer(int32_t destX, int32_t destY, const uint32_t* srcBuffer, int32_t srcWidth, int32_t srcHeight)
+{
+    if (!g_Backbuffer || !srcBuffer || srcWidth <= 0 || srcHeight <= 0) return;
+
+    int32_t x0 = destX;
+    int32_t y0 = destY;
+    int32_t x1 = destX + srcWidth;
+    int32_t y1 = destY + srcHeight;
+
+    int32_t clip_x0 = g_ClipRect.x;
+    int32_t clip_y0 = g_ClipRect.y;
+    int32_t clip_x1 = g_ClipRect.x + g_ClipRect.width;
+    int32_t clip_y1 = g_ClipRect.y + g_ClipRect.height;
+
+    if (x0 < clip_x0) x0 = clip_x0;
+    if (y0 < clip_y0) y0 = clip_y0;
+    if (x1 > clip_x1) x1 = clip_x1;
+    if (y1 > clip_y1) y1 = clip_y1;
+
+    if (x0 >= x1 || y0 >= y1) return;
+
+    for (int32_t y = y0; y < y1; y++)
+    {
+        int32_t srcY = y - destY;
+        int32_t srcX = x0 - destX;
+        int32_t copyWidth = x1 - x0;
+
+        uint32_t* dst = &g_Backbuffer[y * g_Width + x0];
+        const uint32_t* src = &srcBuffer[srcY * srcWidth + srcX];
+        memcpy(dst, src, copyWidth * sizeof(uint32_t));
+    }
+}
+
 void GFX_DrawCursor(int32_t x, int32_t y)
 {
     for (int cy = 0; cy < 18; cy++)

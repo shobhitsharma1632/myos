@@ -2,6 +2,7 @@
 #include "gfx.h"
 #include <arch/i686/mouse.h>
 #include <arch/i686/keyboard.h>
+#include <arch/i686/bga.h>
 #include <hal/task.h>
 #include <hal/pmm.h>
 #include <hal/vmm.h>
@@ -10,6 +11,8 @@
 #include <hal/fat.h>
 #include <arch/i686/ata.h>
 #include <stdio.h>
+#include <string.h>
+#include <memory.h>
 #include <debug.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -29,7 +32,9 @@ static uint32_t g_NextWindowId = 1;
 static GUI_Window* g_WindowList = NULL;
 static GUI_Window* g_ActiveDragWindow = NULL;
 
-static bool g_PrevLeftButton = false;
+static bool    g_PrevLeftButton = false;
+static int32_t g_PrevMouseX = -1;
+static int32_t g_PrevMouseY = -1;
 
 // Pre-declared window draw callbacks
 static void Draw_SchedulerWindow(GUI_Window* win);
@@ -43,12 +48,23 @@ GUI_Window* GUI_CreateWindow(const char* title, int32_t x, int32_t y, int32_t wi
     GUI_Window* win = (GUI_Window*)kmalloc(sizeof(GUI_Window));
     if (!win)
     {
-        log_err(MODULE, "Failed to allocate memory for window '%s'", title);
+        log_err(MODULE, "Failed to allocate memory for window '%s'", title ? title : "unnamed");
         return NULL;
     }
+    memset(win, 0, sizeof(GUI_Window));
 
     win->id = g_NextWindowId++;
-    win->title = title;
+    win->owner_pid = 0; // Kernel internal window
+    if (title)
+    {
+        strncpy(win->title, title, sizeof(win->title) - 1);
+        win->title[sizeof(win->title) - 1] = '\0';
+    }
+    else
+    {
+        strcpy(win->title, "Window");
+    }
+
     win->x = x;
     win->y = y;
     win->width = width;
@@ -62,12 +78,127 @@ GUI_Window* GUI_CreateWindow(const char* title, int32_t x, int32_t y, int32_t wi
     win->onDraw = onDraw;
     win->userData = NULL;
 
+    win->phys_buffer = NULL;
+    win->user_virt_buffer = 0;
+    win->buffer_pages = 0;
+    win->client_w = width - 2;
+    win->client_h = height - TITLEBAR_HEIGHT - 2;
+    win->is_damaged = true;
+
     // Prepend to window list (top of Z-order)
     win->next = g_WindowList;
     g_WindowList = win;
 
     GUI_FocusWindow(win);
     return win;
+}
+
+GUI_Window* GUI_CreateClientWindow(uint32_t owner_pid, const char* title, int32_t x, int32_t y, int32_t width, int32_t height)
+{
+    // Auto-initialize GUI subsystem if not yet running
+    if (!g_GuiRunning && BGA_IsAvailable())
+    {
+        log_info(MODULE, "Auto-initializing GUI subsystem for client window...");
+        if (GUI_Initialize(1024, 768))
+        {
+            GUI_Start();
+        }
+    }
+
+    if (width < 64) width = 64;
+    if (width > (int32_t)g_GuiWidth) width = g_GuiWidth;
+    if (height < 64) height = 64;
+    if (height > (int32_t)(g_GuiHeight - TASKBAR_HEIGHT)) height = g_GuiHeight - TASKBAR_HEIGHT;
+
+    int32_t clientW = width - 2;
+    int32_t clientH = height - TITLEBAR_HEIGHT - 2;
+    size_t buf_bytes = (size_t)clientW * clientH * sizeof(uint32_t);
+    size_t pages_needed = (buf_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
+
+    void* phys_buf = PMM_AllocatePages(pages_needed);
+    if (!phys_buf)
+    {
+        log_err(MODULE, "Failed to allocate %u physical frames for client window '%s'",
+                (uint32_t)pages_needed, title ? title : "Window");
+        return NULL;
+    }
+    memset(phys_buf, 0, pages_needed * PAGE_SIZE);
+
+    GUI_Window* win = (GUI_Window*)kmalloc(sizeof(GUI_Window));
+    if (!win)
+    {
+        PMM_FreePages(phys_buf, pages_needed);
+        log_err(MODULE, "Failed to allocate TCB for client window '%s'", title ? title : "Window");
+        return NULL;
+    }
+    memset(win, 0, sizeof(GUI_Window));
+
+    win->id = g_NextWindowId++;
+    win->owner_pid = owner_pid;
+    if (title)
+    {
+        strncpy(win->title, title, sizeof(win->title) - 1);
+        win->title[sizeof(win->title) - 1] = '\0';
+    }
+    else
+    {
+        strcpy(win->title, "Client Window");
+    }
+
+    // Default positioning if negative
+    if (x < 0) x = 60 + ((win->id * 30) % 300);
+    if (y < 0) y = 40 + ((win->id * 25) % 200);
+
+    win->x = x;
+    win->y = y;
+    win->width = width;
+    win->height = height;
+    win->isVisible = true;
+    win->isFocused = false;
+    win->isDragging = false;
+    win->titleColor = GFX_COLOR_TITLEBAR;
+    win->onDraw = NULL;
+    win->userData = NULL;
+
+    win->phys_buffer = phys_buf;
+    win->buffer_pages = pages_needed;
+    win->client_w = clientW;
+    win->client_h = clientH;
+    win->is_damaged = true;
+
+    uint32_t user_virt = USER_GUI_BUFFER_BASE + (win->id * 0x00400000);
+    win->user_virt_buffer = user_virt;
+
+    // Map each physical page into current user task's active page directory
+    for (size_t p = 0; p < pages_needed; p++)
+    {
+        void* vaddr = (void*)(user_virt + p * PAGE_SIZE);
+        void* paddr = (void*)((uint32_t)phys_buf + p * PAGE_SIZE);
+        VMM_MapPage(vaddr, paddr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+    }
+
+    win->next = g_WindowList;
+    g_WindowList = win;
+
+    GUI_FocusWindow(win);
+
+    log_info(MODULE, "Created client window '%s' (ID %u, PID %u) %dx%d (virt=0x%x, phys=0x%x, pages=%u)",
+             win->title, win->id, win->owner_pid, win->client_w, win->client_h,
+             win->user_virt_buffer, (uint32_t)win->phys_buffer, (uint32_t)pages_needed);
+
+    return win;
+}
+
+GUI_Window* GUI_FindWindowById(uint32_t id)
+{
+    GUI_Window* cur = g_WindowList;
+    while (cur)
+    {
+        if (cur->id == id)
+            return cur;
+        cur = cur->next;
+    }
+    return NULL;
 }
 
 void GUI_DestroyWindow(GUI_Window* win)
@@ -86,6 +217,16 @@ void GUI_DestroyWindow(GUI_Window* win)
         if (prev)
             prev->next = win->next;
     }
+
+    if (g_ActiveDragWindow == win)
+        g_ActiveDragWindow = NULL;
+
+    if (win->phys_buffer && win->buffer_pages > 0)
+    {
+        PMM_FreePages(win->phys_buffer, win->buffer_pages);
+        win->phys_buffer = NULL;
+    }
+
     kfree(win);
 }
 
@@ -97,11 +238,27 @@ void GUI_FocusWindow(GUI_Window* win)
     GUI_Window* cur = g_WindowList;
     while (cur)
     {
+        if (cur->isFocused && cur != win && cur->owner_pid > 0)
+        {
+            gui_event_t ev;
+            memset(&ev, 0, sizeof(ev));
+            ev.type = GUI_EVENT_BLUR;
+            ev.window_id = cur->id;
+            GUI_EnqueueEvent(cur, &ev);
+        }
         cur->isFocused = false;
         cur = cur->next;
     }
 
     win->isFocused = true;
+    if (win->owner_pid > 0)
+    {
+        gui_event_t ev;
+        memset(&ev, 0, sizeof(ev));
+        ev.type = GUI_EVENT_FOCUS;
+        ev.window_id = win->id;
+        GUI_EnqueueEvent(win, &ev);
+    }
 
     // If not already head of list, move to head
     if (g_WindowList != win)
@@ -115,6 +272,58 @@ void GUI_FocusWindow(GUI_Window* win)
             win->next = g_WindowList;
             g_WindowList = win;
         }
+    }
+}
+
+bool GUI_EnqueueEvent(GUI_Window* win, const gui_event_t* ev)
+{
+    if (!win || !ev) return false;
+
+    if (win->events.count >= GUI_MAX_EVENTS)
+    {
+        // Drop oldest to make room
+        win->events.tail = (win->events.tail + 1) % GUI_MAX_EVENTS;
+        win->events.count--;
+    }
+
+    win->events.events[win->events.head] = *ev;
+    win->events.head = (win->events.head + 1) % GUI_MAX_EVENTS;
+    win->events.count++;
+    return true;
+}
+
+bool GUI_DequeueEvent(GUI_Window* win, gui_event_t* ev)
+{
+    if (!win || !ev || win->events.count == 0) return false;
+
+    *ev = win->events.events[win->events.tail];
+    win->events.tail = (win->events.tail + 1) % GUI_MAX_EVENTS;
+    win->events.count--;
+    return true;
+}
+
+void GUI_DamageWindow(GUI_Window* win, int32_t x, int32_t y, int32_t w, int32_t h)
+{
+    (void)x; (void)y; (void)w; (void)h;
+    if (win)
+        win->is_damaged = true;
+}
+
+void GUI_CleanupProcessWindows(uint32_t pid)
+{
+    if (pid == 0) return;
+
+    GUI_Window* cur = g_WindowList;
+    while (cur)
+    {
+        GUI_Window* next = cur->next;
+        if (cur->owner_pid == pid)
+        {
+            log_info(MODULE, "Cleaning up client window '%s' (ID %u) for terminated PID %u",
+                     cur->title, cur->id, pid);
+            GUI_DestroyWindow(cur);
+        }
+        cur = next;
     }
 }
 
@@ -197,19 +406,28 @@ static void GUI_DrawWindow(GUI_Window* win)
     GFX_FillRect(closeX, closeY, 15, 15, 0x00DC2626);
     GFX_DrawChar(closeX + 4, closeY + 4, 'x', GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
 
-    // 4. Client background
+    // 4. Client content
     int32_t clientX = win->x + 1;
     int32_t clientY = win->y + TITLEBAR_HEIGHT + 1;
     int32_t clientW = win->width - 2;
     int32_t clientH = win->height - TITLEBAR_HEIGHT - 2;
-    GFX_FillRect(clientX, clientY, clientW, clientH, GFX_COLOR_DARK_BLUE);
 
-    // 5. Render client content with clipping
-    if (win->onDraw)
+    if (win->phys_buffer)
     {
+        // Blit client-drawn backbuffer directly into compositor frame
         GFX_SetClip(clientX, clientY, clientW, clientH);
-        win->onDraw(win);
+        GFX_BlitBuffer(clientX, clientY, (const uint32_t*)win->phys_buffer, clientW, clientH);
         GFX_ResetClip();
+    }
+    else
+    {
+        GFX_FillRect(clientX, clientY, clientW, clientH, GFX_COLOR_DARK_BLUE);
+        if (win->onDraw)
+        {
+            GFX_SetClip(clientX, clientY, clientW, clientH);
+            win->onDraw(win);
+            GFX_ResetClip();
+        }
     }
 }
 
@@ -320,13 +538,13 @@ static void Draw_AboutWindow(GUI_Window* win)
 
     GFX_DrawString(x, y, "myOS Desktop GUI", GFX_COLOR_EMERALD, GFX_COLOR_TRANSPARENT);
     y += 16;
-    GFX_DrawString(x, y, "Version : 1.0 (Phase 10 Graphical Subsystem)", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+    GFX_DrawString(x, y, "Version : 1.0 (Phase 19 Window Server & Ecosystem)", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
     y += 12;
     GFX_DrawString(x, y, "Display : Bochs VBE 1024x768 @ 32bpp (LFB)", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
     y += 12;
     GFX_DrawString(x, y, "Kernel  : 32-bit x86 Protected Mode + Paging", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
     y += 12;
-    GFX_DrawString(x, y, "Window  : Non-tearing Double-Buffered Compositor", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+    GFX_DrawString(x, y, "Window  : Client-Server Shared Memory Compositor", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
     y += 16;
     GFX_DrawString(x, y, "Click and drag any window title bar to move!", GFX_COLOR_AMBER, GFX_COLOR_TRANSPARENT);
 }
@@ -404,11 +622,10 @@ void GUI_Render(void)
     GUI_DrawDesktop();
 
     // 2. Draw windows in reverse Z-order (bottom to top)
-    // Build temporary array of windows from head to tail
-    GUI_Window* wins[16];
+    GUI_Window* wins[32];
     int count = 0;
     GUI_Window* cur = g_WindowList;
-    while (cur && count < 16)
+    while (cur && count < 32)
     {
         wins[count++] = cur;
         cur = cur->next;
@@ -424,10 +641,10 @@ void GUI_Render(void)
     MouseState mouse;
     Mouse_GetState(&mouse);
 
-    // Mouse click handling
     bool leftClickDown = mouse.leftButton && !g_PrevLeftButton;
-    bool leftClickUp = !mouse.leftButton && g_PrevLeftButton;
-    g_PrevLeftButton = mouse.leftButton;
+    bool leftClickUp   = !mouse.leftButton && g_PrevLeftButton;
+    bool mouseMoved    = (mouse.x != g_PrevMouseX || mouse.y != g_PrevMouseY);
+    g_PrevLeftButton   = mouse.leftButton;
 
     if (leftClickDown)
     {
@@ -443,6 +660,14 @@ void GUI_Render(void)
             if (mouse.x >= closeX && mouse.x <= closeX + 15 &&
                 mouse.y >= closeY && mouse.y <= closeY + 15)
             {
+                if (w->owner_pid > 0)
+                {
+                    gui_event_t ev;
+                    memset(&ev, 0, sizeof(ev));
+                    ev.type = GUI_EVENT_CLOSE;
+                    ev.window_id = w->id;
+                    GUI_EnqueueEvent(w, &ev);
+                }
                 w->isVisible = false;
                 break;
             }
@@ -459,7 +684,31 @@ void GUI_Render(void)
                 break;
             }
 
-            // Check general window click for focus
+            // Check client area click for focus & event dispatch
+            int32_t clientX = w->x + 1;
+            int32_t clientY = w->y + TITLEBAR_HEIGHT + 1;
+            int32_t clientW = w->width - 2;
+            int32_t clientH = w->height - TITLEBAR_HEIGHT - 2;
+
+            if (mouse.x >= clientX && mouse.x < clientX + clientW &&
+                mouse.y >= clientY && mouse.y < clientY + clientH)
+            {
+                GUI_FocusWindow(w);
+                if (w->owner_pid > 0)
+                {
+                    gui_event_t ev;
+                    memset(&ev, 0, sizeof(ev));
+                    ev.type = GUI_EVENT_MOUSE_DOWN;
+                    ev.window_id = w->id;
+                    ev.mouse_x = mouse.x - clientX;
+                    ev.mouse_y = mouse.y - clientY;
+                    ev.button = 1;
+                    GUI_EnqueueEvent(w, &ev);
+                }
+                break;
+            }
+
+            // Check general window frame click for focus
             if (mouse.x >= w->x && mouse.x <= w->x + w->width &&
                 mouse.y >= w->y && mouse.y <= w->y + w->height)
             {
@@ -468,6 +717,52 @@ void GUI_Render(void)
             }
         }
     }
+    else if (leftClickUp)
+    {
+        // Route mouse up to focused client window
+        if (g_WindowList && g_WindowList->isVisible && g_WindowList->owner_pid > 0)
+        {
+            GUI_Window* w = g_WindowList;
+            int32_t clientX = w->x + 1;
+            int32_t clientY = w->y + TITLEBAR_HEIGHT + 1;
+            gui_event_t ev;
+            memset(&ev, 0, sizeof(ev));
+            ev.type = GUI_EVENT_MOUSE_UP;
+            ev.window_id = w->id;
+            ev.mouse_x = mouse.x - clientX;
+            ev.mouse_y = mouse.y - clientY;
+            ev.button = 1;
+            GUI_EnqueueEvent(w, &ev);
+        }
+    }
+    else if (mouseMoved)
+    {
+        // Route mouse move to focused client window if inside its bounds
+        if (g_WindowList && g_WindowList->isVisible && g_WindowList->owner_pid > 0)
+        {
+            GUI_Window* w = g_WindowList;
+            int32_t clientX = w->x + 1;
+            int32_t clientY = w->y + TITLEBAR_HEIGHT + 1;
+            int32_t clientW = w->width - 2;
+            int32_t clientH = w->height - TITLEBAR_HEIGHT - 2;
+
+            if (mouse.x >= clientX && mouse.x < clientX + clientW &&
+                mouse.y >= clientY && mouse.y < clientY + clientH)
+            {
+                gui_event_t ev;
+                memset(&ev, 0, sizeof(ev));
+                ev.type = GUI_EVENT_MOUSE_MOVE;
+                ev.window_id = w->id;
+                ev.mouse_x = mouse.x - clientX;
+                ev.mouse_y = mouse.y - clientY;
+                ev.button = mouse.leftButton ? 1 : 0;
+                GUI_EnqueueEvent(w, &ev);
+            }
+        }
+    }
+
+    g_PrevMouseX = mouse.x;
+    g_PrevMouseY = mouse.y;
 
     // Active drag update
     if (g_ActiveDragWindow)
@@ -494,10 +789,25 @@ void GUI_Render(void)
         }
     }
 
-    // 4. Render mouse pointer at latest coordinates
+    // 4. Keyboard Event Routing to Focused Client Window
+    if (g_WindowList && g_WindowList->isVisible && g_WindowList->owner_pid > 0)
+    {
+        while (i686_Keyboard_HasChar())
+        {
+            char c = i686_Keyboard_GetChar();
+            gui_event_t ev;
+            memset(&ev, 0, sizeof(ev));
+            ev.type = GUI_EVENT_KEY_DOWN;
+            ev.window_id = g_WindowList->id;
+            ev.key_char = (uint32_t)c;
+            GUI_EnqueueEvent(g_WindowList, &ev);
+        }
+    }
+
+    // 5. Render mouse pointer at latest coordinates
     GFX_DrawCursor(mouse.x, mouse.y);
 
-    // 5. Blit backbuffer to front Linear Framebuffer
+    // 6. Blit backbuffer to front Linear Framebuffer
     GFX_SwapBuffers();
 }
 
