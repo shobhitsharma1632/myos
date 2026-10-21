@@ -1,6 +1,6 @@
 # myOS — 32-Bit x86 Protected Mode Operating System
 
-**myOS** is an educational, modular 32-bit x86 operating system built from the ground up in C and Assembly. It features a complete two-stage bootloader with MBR partition and FAT filesystem support, an ELF32 kernel with C runtime initialization, a modern Hardware Abstraction Layer (HAL), an enterprise-grade memory management stack (Physical Memory Manager, Virtual Memory Manager with Paging, and a Kernel Heap Allocator), a preemptive Multi-Level Feedback Queue (MLFQ) scheduler, an interactive command shell, and a high-resolution 1024x768 @ 32bpp graphical desktop with mouse support.
+**myOS** is an educational, modular 32-bit x86 operating system built from the ground up in C and Assembly. It features a complete two-stage bootloader with MBR partition and FAT filesystem support, an ELF32 kernel with C runtime initialization, a modern Hardware Abstraction Layer (HAL), an enterprise-grade memory management stack (Physical Memory Manager, Virtual Memory Manager with Paging, and a Kernel Heap Allocator), a Symmetric Multiprocessing (SMP) parallel Multi-Level Feedback Queue (MLFQ) scheduler with per-CPU runqueues and work stealing, an interactive command shell, a high-resolution 1024x768 @ 32bpp graphical desktop with mouse support, an RFC 793 TCP/IP networking stack with BSD sockets, a Sound Blaster 16 audio subsystem, and a rich retro gaming ecosystem (DOOM, Tetris, Snake).
 
 <p align="center">
   <img src="desktop.png" alt="myOS 1024x768 GUI Desktop" width="85%">
@@ -11,44 +11,45 @@
 ## Architecture Overview
 
 ```
-                      ┌────────────────────────────────────────┐
-                      │    Kernel Core & Application Space     │
-                      └───────────────────┬────────────────────┘
-                                          │
-                      ┌───────────────────▼────────────────────┐
-                      │  MLFQ Preemptive Task Scheduler (HAL)  │
-                      │  3-Level Queues, Stack Switching, ISR  │
-                      └───────────────────┬────────────────────┘
-                                          │
-                      ┌───────────────────▼────────────────────┐
-                      │    Kernel Heap (kmalloc / kfree)       │
-                      │  Boundary-tag allocator, 8-byte align  │
-                      └───────────────────┬────────────────────┘
-                                          │
-                      ┌───────────────────▼────────────────────┐
-                      │  Virtual Memory Manager (VMM / Paging) │
-                      │  Two-level paging, recursive PDE 1023  │
-                      └───────────────────┬────────────────────┘
-                                          │
-                      ┌───────────────────▼────────────────────┐
-                      │  Physical Memory Manager (PMM / Bitmap)│
-                      │  Page frame allocator, E820 detection  │
-                      └───────────────────┬────────────────────┘
-                                          │
- ═════════════════════════════════════════╪═════════════════════════════════════════
-                       HARDWARE ABSTRACTION LAYER (HAL)
- ═════════════════════════════════════════╤═════════════════════════════════════════
-                                          │
-           ┌──────────────────────────────┼──────────────────────────────┐
-           ▼                              ▼                              ▼
-┌──────────────────────┐      ┌──────────────────────┐      ┌──────────────────────┐
-│  CPU & Interrupts    │      │  Graphics & Desktop  │      │  Storage & Boot      │
-│  • GDT / IDT / ISR   │      │  • Bochs VBE (32bpp) │      │  • Stage 1 / Stage 2 │
-│  • Modular i8259 PIC │      │  • Window Compositor │      │  • MBR Partitions    │
-│  • Timer (IRQ 0)     │      │  • 2D Graphics & Font│      │  • FAT12/16/32 Cache │
-│  • Keyboard (IRQ 1)  │      │  • VGA Text (0xB8000)│      │  • ELF32 Loader      │
-│  • PS/2 Mouse (IRQ12)│      │  • Port 0xE9 Debug   │      │  • ANSI Logger       │
-└──────────────────────┘      └──────────────────────┘      └──────────────────────┘
+                      ┌────────────────────────────────────────────────────────┐
+                      │            Kernel Core & Application Space             │
+                      │  ELF32 Binaries, User C Library (libmyos), User Shell  │
+                      └───────────────────────────┬────────────────────────────┘
+                                                  │
+                      ┌───────────────────────────▼────────────────────────────┐
+                      │    SMP Multi-Core Parallel Scheduler (Per-CPU MLFQ)    │
+                      │  Per-Core Runqueues, Work Stealing, Reschedule IPIs    │
+                      └───────────────────────────┬────────────────────────────┘
+                                                  │
+                      ┌───────────────────────────▼────────────────────────────┐
+                      │           Kernel Heap Allocator (kmalloc / kfree)      │
+                      │  Boundary-tag allocator, 8-byte align, O(1) coalescing │
+                      └───────────────────────────┬────────────────────────────┘
+                                                  │
+                      ┌───────────────────────────▼────────────────────────────┐
+                      │          Virtual Memory Manager (VMM / Paging)         │
+                      │  Two-level paging, recursive PDE 1023, TLB shootdown   │
+                      └───────────────────────────┬────────────────────────────┘
+                                                  │
+                      ┌───────────────────────────▼────────────────────────────┐
+                      │          Physical Memory Manager (PMM / Bitmap)        │
+                      │  Page frame allocator, E820 detection, frame recycling │
+                      └───────────────────────────┬────────────────────────────┘
+                                                  │
+ ═════════════════════════════════════════════════╪═════════════════════════════════════════════════
+                                   HARDWARE ABSTRACTION LAYER (HAL)
+ ═════════════════════════════════════════════════╤═════════════════════════════════════════════════
+                                                  │
+     ┌──────────────────────┬─────────────────────┼─────────────────────┬──────────────────────┐
+     ▼                      ▼                     ▼                     ▼                      ▼
+┌──────────────┐      ┌──────────────┐      ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
+│ SMP & APIC   │      │ CPU / Ints   │      │ Graphics/GUI │      │ Network/Net  │      │ Audio / SB16 │
+│ • ACPI MADT  │      │ • GDT (TSS)  │      │ • BGA 1024x  │      │ • E1000 NIC  │      │ • SB16 DSP   │
+│ • Local APIC │      │ • IDT (256)  │      │ • Compositor │      │ • ARP / IPv4 │      │ • CT1745 Mix │
+│ • I/O APIC   │      │ • i8259 PIC  │      │ • Window Svr │      │ • ICMP / UDP │      │ • 8237 DMA   │
+│ • AP Tramp   │      │ • PS/2 Kbd   │      │ • PS/2 Mouse │      │ • TCP / Sockets│    │ • WAV Stream │
+│ • IPIs / TR  │      │ • Syscall 80 │      │ • 2D Engine  │      │ • HTTP / Curl│      │ • Retro Games│
+└──────────────┘      └──────────────┘      └──────────────┘      └──────────────┘      └──────────────┘
 ```
 
 ---
@@ -470,17 +471,17 @@ myos/
 │   │   ├── stage1/             # MBR boot sector (boot.asm, linker.ld)
 │   │   └── stage2/             # 32-bit loader (E820, MBR, FAT12/16/32, ELF32)
 │   ├── kernel/
-│   │   ├── arch/i686/          # x86 CPU & device drivers (GDT, IDT, PIC, VMM, E1000 NIC, DMA, SB16)
-│   │   ├── hal/                # Hardware Abstraction Layer (PMM, VMM, Heap, VFS, Pipes, Audio, ELF Loader, Shell, GUI)
-│   │   ├── net/                # Network Protocol Stack (Ethernet, ARP, IPv4, ICMP, UDP)
+│   │   ├── arch/i686/          # x86 CPU, APIC & device drivers (GDT, TSS, IDT, PIC, APIC, IOAPIC, SMP Trampoline, VMM, E1000 NIC, DMA, SB16)
+│   │   ├── hal/                # Hardware Abstraction Layer (PMM, VMM, Heap, SMP, Spinlocks, Task MLFQ, VFS, Pipes, Audio, ELF Loader, Shell, GUI)
+│   │   ├── net/                # Network Protocol Stack (Ethernet, ARP, IPv4, ICMP, UDP, TCP, BSD Sockets)
 │   │   ├── main.c              # Kernel entry point and test suite
 │   │   └── linker.ld           # elf32-i386 kernel linker script
 │   ├── user/                   # Ring 3 User-space runtime & applications
 │   │   ├── crt0.asm            # User-space C runtime startup
 │   │   ├── linker.ld           # User application linker script (0x40000000)
-│   │   ├── libuser.h/c         # Standard user library and syscall wrappers
+│   │   ├── libuser.h/c         # Standard user library, syscall wrappers & BSD sockets API
 │   │   ├── libgui.h/c          # Graphical UI client toolkit library (2D engine & event queue)
-│   │   └── apps/               # Standalone applications (hello, calc, counter, cat, wc, grep, sh, snake, ifconfig, ping, tee, head, curl, httpd, alarm, trap, notepad, sysmon, paint, play, tetris, doom)
+│   │   └── apps/               # 22 standalone applications (hello, calc, counter, cat, wc, grep, sh, snake, ifconfig, ping, tee, head, curl, httpd, alarm, trap, notepad, sysmon, paint, play, tetris, doom, smpinfo)
 │   └── libs/
 │       └── boot/
 │           └── bootparams.h    # Shared Stage 2 <-> Kernel boot data contract
@@ -511,10 +512,10 @@ This automatically compiles `i686-elf-gcc` and `i686-elf-binutils` into `./toolc
 ```bash
 make build
 ```
-This configures CMake, compiles the bootloader stages, compiles the kernel ELF with global constructors (`crti.o`/`crtn.o`), creates the bootable disk image, and patches the boot sector.
+This configures CMake, compiles the bootloader stages, compiles the kernel ELF with global constructors (`crti.o`/`crtn.o`), compiles all 22 user-space applications into `::bin/`, creates the bootable disk image, and patches the boot sector.
 
 ### 3. Run in QEMU
-- **Text / Debug Console mode (Default):**
+- **Text / Debug Console mode (Default with 4 SMP cores, Sound Blaster 16 & E1000 NIC):**
   ```bash
   make run
   ```
@@ -524,9 +525,12 @@ This configures CMake, compiles the bootloader stages, compiles the kernel ELF w
   ```
   *(Automatically launches a native GUI window if a display server is available, or activates the built-in VNC server on port `5900` / WebSocket `6080` in headless environments).*
 
-Or run directly with Port 0xE9 debug console redirection:
+Or run directly via QEMU CLI with Port 0xE9 debug console redirection:
 ```bash
-qemu-system-i386 -drive file=build/main_floppy.img,format=raw,if=ide -debugcon stdio
+qemu-system-i386 -drive file=build/main_floppy.img,format=raw,if=ide -smp 4 \
+                 -audiodev id=snd0,driver=none -device sb16,audiodev=snd0 \
+                 -netdev user,id=net0 -device e1000,netdev=net0 \
+                 -debugcon stdio
 ```
 
 ---
