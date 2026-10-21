@@ -103,6 +103,10 @@ void    qsort(void* base, size_t nmemb, size_t size, int (*compar)(const void*, 
 int     rand(void);
 void    srand(unsigned int seed);
 int     abs(int j);
+double  fabs(double x);
+double  sqrt(double x);
+double  sin(double x);
+double  cos(double x);
 
 // Low-Level Kernel Syscall Wrappers
 void     sys_exit(int code) __attribute__((noreturn));
@@ -315,3 +319,41 @@ typedef struct {
 #endif
 
 int sys_smp_info(smp_info_t* info);
+
+// Audio & Sound Blaster 16 Subsystem
+#define SYS_AUDIO_PLAY      44
+#define SYS_AUDIO_STATUS    45
+#define SYS_AUDIO_STOP      46
+#define SYS_AUDIO_SET_VOL   47
+
+#ifndef _AUDIO_PLAY_REQ_T_DEFINED
+#define _AUDIO_PLAY_REQ_T_DEFINED
+typedef struct {
+    const void* data;
+    uint32_t    length;
+    uint16_t    sample_rate;
+    uint8_t     bits;
+    uint8_t     channels;
+    uint8_t     blocking;
+} audio_play_req_t;
+#endif
+
+#ifndef _AUDIO_STATUS_T_DEFINED
+#define _AUDIO_STATUS_T_DEFINED
+typedef struct {
+    bool     hardware_present;
+    bool     is_playing;
+    uint8_t  volume;
+    uint16_t current_rate;
+    uint8_t  current_bits;
+    uint8_t  current_channels;
+    uint32_t total_samples;
+} audio_status_t;
+#endif
+
+int  sys_audio_play(const void* data, uint32_t len, uint16_t rate, uint8_t bits, uint8_t channels, bool blocking);
+int  sys_audio_status(audio_status_t* status);
+int  sys_audio_stop(void);
+int  sys_audio_set_vol(uint8_t volume);
+int  audio_play_wav(const char* filepath, bool blocking);
+

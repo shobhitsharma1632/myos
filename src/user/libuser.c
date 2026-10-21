@@ -1055,6 +1055,31 @@ int abs(int j)
     return (j < 0) ? -j : j;
 }
 
+double fabs(double x)
+{
+    __asm__ ("fabs" : "+t"(x));
+    return x;
+}
+
+double sqrt(double x)
+{
+    if (x <= 0.0) return 0.0;
+    __asm__ ("fsqrt" : "+t"(x));
+    return x;
+}
+
+double sin(double x)
+{
+    __asm__ ("fsin" : "+t"(x));
+    return x;
+}
+
+double cos(double x)
+{
+    __asm__ ("fcos" : "+t"(x));
+    return x;
+}
+
 static unsigned long g_rand_next = 1;
 
 int rand(void)
@@ -1437,4 +1462,128 @@ int sys_smp_info(smp_info_t* info)
         : "memory"
     );
     return ret;
+}
+
+int sys_audio_play(const void* data, uint32_t len, uint16_t rate, uint8_t bits, uint8_t channels, bool blocking)
+{
+    audio_play_req_t req;
+    req.data = data;
+    req.length = len;
+    req.sample_rate = rate;
+    req.bits = bits;
+    req.channels = channels;
+    req.blocking = blocking ? 1 : 0;
+
+    int ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(SYS_AUDIO_PLAY), "b"(&req)
+        : "memory"
+    );
+    return ret;
+}
+
+int sys_audio_status(audio_status_t* status)
+{
+    int ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(SYS_AUDIO_STATUS), "b"(status)
+        : "memory"
+    );
+    return ret;
+}
+
+int sys_audio_stop(void)
+{
+    int ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(SYS_AUDIO_STOP)
+        : "memory"
+    );
+    return ret;
+}
+
+int sys_audio_set_vol(uint8_t volume)
+{
+    int ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(SYS_AUDIO_SET_VOL), "b"((uint32_t)volume)
+        : "memory"
+    );
+    return ret;
+}
+
+typedef struct {
+    char     riff_id[4];     // "RIFF"
+    uint32_t riff_size;
+    char     wave_id[4];     // "WAVE"
+    char     fmt_id[4];      // "fmt "
+    uint32_t fmt_size;
+    uint16_t audio_format;   // 1 = PCM
+    uint16_t num_channels;   // 1 = mono, 2 = stereo
+    uint32_t sample_rate;    // e.g. 11025, 22050, 44100
+    uint32_t byte_rate;      // sample_rate * num_channels * bits_per_sample / 8
+    uint16_t block_align;    // num_channels * bits_per_sample / 8
+    uint16_t bits_per_sample;// 8 or 16
+    char     data_id[4];     // "data"
+    uint32_t data_size;
+} __attribute__((packed)) wav_header_t;
+
+int audio_play_wav(const char* filepath, bool blocking)
+{
+    if (!filepath) return -1;
+
+    int fd = sys_open(filepath, O_RDONLY);
+    if (fd < 0) return -1;
+
+    wav_header_t header;
+    int bytes_read = sys_read_file(fd, &header, sizeof(wav_header_t));
+    if (bytes_read < (int)sizeof(wav_header_t))
+    {
+        sys_close(fd);
+        return -2;
+    }
+
+    if (memcmp(header.riff_id, "RIFF", 4) != 0 ||
+        memcmp(header.wave_id, "WAVE", 4) != 0)
+    {
+        sys_close(fd);
+        return -3;
+    }
+
+    uint32_t pcm_len = header.data_size;
+    if (pcm_len == 0 || pcm_len > 131072) // 128 KiB limit
+    {
+        pcm_len = 8192;
+    }
+
+    void* pcm_buf = malloc(pcm_len);
+    if (!pcm_buf)
+    {
+        sys_close(fd);
+        return -4;
+    }
+
+    int data_read = sys_read_file(fd, pcm_buf, pcm_len);
+    sys_close(fd);
+
+    if (data_read <= 0)
+    {
+        free(pcm_buf);
+        return -5;
+    }
+
+    int res = sys_audio_play(pcm_buf, data_read, (uint16_t)header.sample_rate,
+                             (uint8_t)header.bits_per_sample, (uint8_t)header.num_channels,
+                             blocking);
+
+    free(pcm_buf);
+    return res;
 }

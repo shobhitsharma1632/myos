@@ -8,6 +8,7 @@
 #include <hal/vfs.h>
 #include <hal/gui.h>
 #include <hal/smp.h>
+#include <hal/audio.h>
 #include <net/net.h>
 #include <net/icmp.h>
 #include <net/udp.h>
@@ -854,6 +855,47 @@ void Syscall_Handler(Registers* regs)
                 }
             }
             memcpy(u_info, &k_info, sizeof(smp_info_t));
+            regs->eax = 0;
+            break;
+        }
+
+        case SYS_AUDIO_PLAY:
+        {
+            const audio_play_req_t* req = (const audio_play_req_t*)arg1;
+            if (!req || !req->data || req->length == 0)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+            bool ok = Audio_PlayPCM(req->data, req->length, req->sample_rate, req->bits, req->channels, req->blocking != 0);
+            regs->eax = ok ? 0 : (uint32_t)-1;
+            break;
+        }
+
+        case SYS_AUDIO_STATUS:
+        {
+            audio_status_t* st = (audio_status_t*)arg1;
+            if (!st)
+            {
+                regs->eax = (uint32_t)-1;
+                break;
+            }
+            Audio_GetStatus(st);
+            regs->eax = 0;
+            break;
+        }
+
+        case SYS_AUDIO_STOP:
+        {
+            Audio_Stop();
+            regs->eax = 0;
+            break;
+        }
+
+        case SYS_AUDIO_SET_VOL:
+        {
+            uint8_t vol = (uint8_t)arg1;
+            Audio_SetVolume(vol);
             regs->eax = 0;
             break;
         }

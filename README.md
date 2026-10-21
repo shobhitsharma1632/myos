@@ -373,6 +373,29 @@
   - Standalone Ring 3 utility `/bin/smpinfo.elf` displaying formatted CPU topology report.
   - Built-in shell command `smp` displaying live APIC and multi-core status.
 
+### 17. Sound Blaster 16 Audio Subsystem & Retro Games (Phase 21)
+- **8237 ISA DMA Controller (`dma.c`, `dma.h`):**
+  - Full primary (8-bit, Channels 0–3, ports `0x00`–`0x07`, page registers `0x81`–`0x87`) and secondary (16-bit, Channels 4–7, ports `0xC0`–`0xDE`, page registers `0x88`–`0x8F`) DMA programming.
+  - Channel setup, masking/unmasking, flip-flop reset, and boundary checking.
+  - Contiguous 16 KiB ISA DMA buffer allocated below the 16MB physical boundary with 64 KiB page boundary adherence.
+- **Sound Blaster 16 Driver & Mixer (`sb16.c`, `sb16.h`):**
+  - Direct DSP programming on ports `0x220`–`0x22F` with automatic reset handshake (`0xAA`) and DSP version probing.
+  - Speaker output control (`0xD1`/`0xD3`), sample rate programming (`0x41`), and 8-bit (`0xC0`) / 16-bit (`0xB0`) single-cycle and auto-init DMA transfers.
+  - CT1745 Mixer controller (`0x224`/`0x225`): Master volume (`0x22`), Voice/PCM volume (`0x04`), IRQ select (`0x80`), DMA select (`0x81`).
+  - IRQ 5 interrupt handler with dual 8-bit (`0x22E`) and 16-bit (`0x22F`) DSP acknowledge and PIC EOI signaling.
+- **Kernel Audio Layer & Syscalls (`audio.c`, `audio.h`, `syscall.c`):**
+  - Streaming double-buffered audio playback, non-blocking background streaming, volume setting, and status queries.
+  - Syscalls: `SYS_AUDIO_PLAY` (44), `SYS_AUDIO_STATUS` (45), `SYS_AUDIO_STOP` (46), `SYS_AUDIO_SET_VOL` (47).
+  - User runtime library: `sys_audio_play`, `sys_audio_status`, `sys_audio_stop`, `sys_audio_set_vol`, and RIFF/WAVE parser `audio_play_wav(path, blocking)`.
+  - Math primitives: hardware x87 FPU-accelerated `fabs`, `sqrt`, `sin`, `cos` in `libuser.c`.
+- **Retro Gaming Ecosystem (`play.c`, `tetris.c`, `snake.c`, `doom.c`):**
+  - `/bin/play.elf`: Audio utility playing `.wav` files and generating synthetic frequency tones (`--synth`).
+  - `/sounds/*.wav`: Bundled PCM audio assets (`coin.wav`, `laser.wav`, `boom.wav`).
+  - `/bin/tetris.elf`: Full 10x20 matrix Tetris with 7 tetrominoes, 4-way rotation, score multipliers, Sound Blaster 16 sound effects, and automated `--test` mode.
+  - `/bin/snake.elf`: Classic interactive Snake with WASD controls and SB16 audio feedback on eating food, with backward-compatible `--test` mode (exit code 10).
+  - `/bin/doom.elf`: 3D raycasting first-person shooter engine with distance-shaded walls, floor, and ceiling, 3 distinct maps (E1M1: Hangar, E1M2: Nuclear Plant, E1M3: Phobos Anomaly), 3 enemy types (Zombieman, Imp, Pinky Demon) with AI state machine (IDLE, CHASE, ATTACK, HURT, DEAD), multiple weapons (Pistol, Shotgun), animated Doomguy status bar with dynamic facial expressions, SB16 sound effects for weapon firing, monster deaths, and level progression, and automated `--test` mode.
+  - Shell `sound` command displaying DSP version, I/O ports, IRQ, and DMA channel status.
+
 ---
 
 ## Memory Map Layout
@@ -418,13 +441,17 @@ myos/
 │   └── setup_toolchain.sh      # Automates i686-elf cross-compiler build
 ├── cmake/
 │   └── toolchain.cmake         # CMake toolchain configuration
+├── disk_files/
+│   ├── readme.txt              # Disk documentation
+│   ├── hello.txt               # Sample file
+│   └── sounds/                 # PCM audio wave assets (coin.wav, laser.wav, boom.wav)
 ├── src/
 │   ├── bootloader/
 │   │   ├── stage1/             # MBR boot sector (boot.asm, linker.ld)
 │   │   └── stage2/             # 32-bit loader (E820, MBR, FAT12/16/32, ELF32)
 │   ├── kernel/
-│   │   ├── arch/i686/          # x86 CPU & device drivers (GDT, IDT, PIC, VMM, E1000 NIC)
-│   │   ├── hal/                # Hardware Abstraction Layer (PMM, VMM, Heap, VFS, Pipes, ELF Loader, Shell, GUI)
+│   │   ├── arch/i686/          # x86 CPU & device drivers (GDT, IDT, PIC, VMM, E1000 NIC, DMA, SB16)
+│   │   ├── hal/                # Hardware Abstraction Layer (PMM, VMM, Heap, VFS, Pipes, Audio, ELF Loader, Shell, GUI)
 │   │   ├── net/                # Network Protocol Stack (Ethernet, ARP, IPv4, ICMP, UDP)
 │   │   ├── main.c              # Kernel entry point and test suite
 │   │   └── linker.ld           # elf32-i386 kernel linker script
@@ -433,7 +460,7 @@ myos/
 │   │   ├── linker.ld           # User application linker script (0x40000000)
 │   │   ├── libuser.h/c         # Standard user library and syscall wrappers
 │   │   ├── libgui.h/c          # Graphical UI client toolkit library (2D engine & event queue)
-│   │   └── apps/               # Standalone applications (hello, calc, counter, cat, wc, grep, sh, snake, ifconfig, ping, tee, head, curl, httpd, alarm, trap, notepad, sysmon, paint)
+│   │   └── apps/               # Standalone applications (hello, calc, counter, cat, wc, grep, sh, snake, ifconfig, ping, tee, head, curl, httpd, alarm, trap, notepad, sysmon, paint, play, tetris, doom)
 │   └── libs/
 │       └── boot/
 │           └── bootparams.h    # Shared Stage 2 <-> Kernel boot data contract

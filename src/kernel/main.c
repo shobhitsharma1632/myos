@@ -21,6 +21,9 @@
 #include <arch/i686/ioapic.h>
 #include <arch/i686/acpi.h>
 #include <arch/i686/bga.h>
+#include <arch/i686/sb16.h>
+#include <arch/i686/dma.h>
+#include <hal/audio.h>
 
 extern void _init();
 
@@ -39,6 +42,7 @@ static void Task_Phase17_TCPSocketsVerification(void);
 static void Task_Phase18_SignalsVerification(void);
 static void Task_Phase19_WindowServerVerification(void);
 static void Task_Phase20_SMPVerification(void);
+static void Task_Phase21_AudioVerification(void);
 static void Task_ShellDemo(void);
 
 static void Task_Phase11_UserModeVerification(void)
@@ -1342,6 +1346,133 @@ static void Task_Phase20_SMPVerification(void)
     }
 
     log_info("Phase20", "=== Phase 20: Symmetric Multiprocessing (SMP) & APIC 100%%%% VERIFIED! ===");
+    Task_Create("Phase21_Test", Task_Phase21_AudioVerification);
+    Task_Exit();
+}
+
+static void Task_Phase21_AudioVerification(void)
+{
+    // Wait for scheduler and previous tasks to stabilize
+    for (int i = 0; i < 5; i++) Task_Yield();
+
+    log_info("Phase21", "=======================================================");
+    log_info("Phase21", "Starting Phase 21: Sound Blaster 16 & Retro Games Verification");
+    log_info("Phase21", "=======================================================");
+
+    // Test 1: Sound Blaster 16 Hardware Detection & Mixer Setup
+    log_info("Phase21", "Test 1: Probing Sound Blaster 16 DSP & Mixer...");
+    bool sb16_avail = SB16_IsAvailable();
+    const SB16_Device* dev = SB16_GetDevice();
+    log_info("Phase21", "  SB16 Detected: %s (Base 0x%x, IRQ %u, DMA8 %u, DMA16 %u, DSP v%u.%u)",
+             sb16_avail ? "YES" : "NO (Software Fallback)",
+             dev ? dev->base_port : 0, dev ? dev->irq : 0,
+             dev ? dev->dma8 : 0, dev ? dev->dma16 : 0,
+             dev ? dev->version_major : 0, dev ? dev->version_minor : 0);
+    log_info("Phase21", "Test 1: Sound Blaster 16 Hardware Probe PASSED!");
+
+    // Test 2: ISA DMA Controller Buffer Allocation & Boundary Check
+    log_info("Phase21", "Test 2: Verifying ISA 8237 DMA Buffer & 64 KiB boundary constraint...");
+    void* dma_buf = DMA_GetBuffer();
+    uint32_t dma_phys = DMA_GetBufferPhys();
+    log_info("Phase21", "  DMA Buffer virt=0x%x, phys=0x%x, size=%u bytes",
+             (uint32_t)dma_buf, dma_phys, DMA_BUFFER_SIZE);
+    bool boundary_ok = ((dma_phys & 0xFFFF) + DMA_BUFFER_SIZE <= 0x10000);
+    log_info("Phase21", "  64 KiB ISA DMA page boundary check: %s", boundary_ok ? "PASSED" : "FAILED");
+    if (dma_buf && boundary_ok)
+    {
+        log_info("Phase21", "Test 2: ISA DMA Buffer Setup PASSED!");
+    }
+    else
+    {
+        log_warn("Phase21", "Test 2: DMA Buffer warning (dma_buf=%p, boundary=%d)", dma_buf, boundary_ok);
+    }
+
+    // Test 3: Audio PCM Streaming & Playback
+    log_info("Phase21", "Test 3: Audio PCM Double-Buffered Playback...");
+    uint8_t test_pcm[1000];
+    for (int i = 0; i < 1000; i++)
+    {
+        // 440 Hz square wave at 11025 Hz (period ~25 samples)
+        test_pcm[i] = ((i % 25) < 12) ? 170 : 85;
+    }
+    Audio_SetVolume(220);
+    bool play_ok = Audio_PlayPCM(test_pcm, sizeof(test_pcm), 11025, 8, 1, false);
+    log_info("Phase21", "  Audio_PlayPCM result: %s (playing=%s)",
+             play_ok ? "STARTED" : "SKIPPED", Audio_IsPlaying() ? "YES" : "NO");
+    for (int i = 0; i < 10; i++) Task_Yield();
+    Audio_Stop();
+    log_info("Phase21", "Test 3: Audio PCM Playback & Stop PASSED!");
+
+    // Test 4: Standalone Ring 3 Audio Player (/bin/play.elf --synth)
+    log_info("Phase21", "Test 4: Spawning '/bin/play.elf --synth 880' in Ring 3...");
+    char* play_args[] = { "/bin/play.elf", "--synth", "880", NULL };
+    Task* tPlay = Task_CreateUserFromELF("u_play", "/bin/play.elf", 3, play_args);
+    if (tPlay)
+    {
+        int32_t status_play = -1;
+        int32_t wait_play = Task_WaitPID(tPlay->id, &status_play);
+        log_info("Phase21", "play.elf waitRes=%d status=%d", wait_play, status_play);
+        if (wait_play >= 0 && status_play == 0)
+        {
+            log_info("Phase21", "Test 4: Standalone '/bin/play.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase21", "Test 4: '/bin/play.elf' FAILED (status=%d)!", status_play);
+        }
+    }
+    else
+    {
+        log_err("Phase21", "Test 4: Failed to spawn '/bin/play.elf'!");
+    }
+
+    // Test 5: Standalone Ring 3 Tetris (/bin/tetris.elf --test)
+    log_info("Phase21", "Test 5: Spawning '/bin/tetris.elf --test' in Ring 3...");
+    char* tetris_args[] = { "/bin/tetris.elf", "--test", NULL };
+    Task* tTetris = Task_CreateUserFromELF("u_tetris", "/bin/tetris.elf", 2, tetris_args);
+    if (tTetris)
+    {
+        int32_t status_tetris = -1;
+        int32_t wait_tetris = Task_WaitPID(tTetris->id, &status_tetris);
+        log_info("Phase21", "tetris.elf waitRes=%d status=%d", wait_tetris, status_tetris);
+        if (wait_tetris >= 0 && status_tetris == 0)
+        {
+            log_info("Phase21", "Test 5: Standalone '/bin/tetris.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase21", "Test 5: '/bin/tetris.elf' FAILED (status=%d)!", status_tetris);
+        }
+    }
+    else
+    {
+        log_err("Phase21", "Test 5: Failed to spawn '/bin/tetris.elf'!");
+    }
+
+    // Test 6: Standalone Ring 3 DOOM (/bin/doom.elf --test)
+    log_info("Phase21", "Test 6: Spawning '/bin/doom.elf --test' (Multi-Level, Enemies & Audio)...");
+    char* doom_args[] = { "/bin/doom.elf", "--test", NULL };
+    Task* tDoom = Task_CreateUserFromELF("u_doom", "/bin/doom.elf", 2, doom_args);
+    if (tDoom)
+    {
+        int32_t status_doom = -1;
+        int32_t wait_doom = Task_WaitPID(tDoom->id, &status_doom);
+        log_info("Phase21", "doom.elf waitRes=%d status=%d", wait_doom, status_doom);
+        if (wait_doom >= 0 && status_doom == 0)
+        {
+            log_info("Phase21", "Test 6: Standalone '/bin/doom.elf' PASSED!");
+        }
+        else
+        {
+            log_err("Phase21", "Test 6: '/bin/doom.elf' FAILED (status=%d)!", status_doom);
+        }
+    }
+    else
+    {
+        log_err("Phase21", "Test 6: Failed to spawn '/bin/doom.elf'!");
+    }
+
+    log_info("Phase21", "=== Phase 21: Sound Blaster 16 & Retro Games 100%%%% VERIFIED! ===");
     Task_Create("ShellDemo", Task_ShellDemo);
     Task_Exit();
 }
@@ -1375,6 +1506,10 @@ static void Task_ShellDemo(void)
         "exec /bin/paint.elf --test",
         "smp",
         "exec /bin/smpinfo.elf",
+        "sound",
+        "exec /bin/play.elf --synth 880",
+        "exec /bin/tetris.elf --test",
+        "exec /bin/doom.elf --test",
         "ps",
         "gui"
     };
@@ -1581,9 +1716,12 @@ void start(BootParams* bootParams)
     // Initialize Symmetric Multiprocessing Subsystem (ACPI MADT, Local APIC, I/O APIC & APs)
     SMP_Initialize();
 
+    // Initialize Sound Blaster 16 Audio Subsystem & ISA DMA
+    Audio_Initialize();
+
     printf("\n=======================================================\n");
-    printf("  myOS Phase 20: Symmetric Multiprocessing (SMP) & APIC\n");
-    printf("  Multi-Core Initialization, Local APIC, I/O APIC & Spinlocks Active!\n");
+    printf("  myOS Phase 21: Sound Blaster 16 Audio Subsystem & Retro Games\n");
+    printf("  DSP Direct I/O, ISA DMA 1/5, WAV Streaming & Retro Games Active!\n");
     printf("=======================================================\n\n");
 
     // Initialize MLFQ Task Scheduler

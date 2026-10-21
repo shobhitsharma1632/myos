@@ -48,6 +48,35 @@
 #define SYS_GUI_DAMAGE      41  // Damage / invalidate window rect (ebx = win_id, ecx = (x << 16)|y, edx = (w << 16)|h)
 #define SYS_GUI_MAP_BUFFER  42  // Get user-accessible backbuffer pointer (ebx = win_id)
 #define SYS_SMP_INFO        43  // Get multi-core SMP topology (ebx = smp_info_t* ptr)
+#define SYS_AUDIO_PLAY      44  // Play PCM audio (ebx = const audio_play_req_t* req)
+#define SYS_AUDIO_STATUS    45  // Get audio status (ebx = audio_status_t* status)
+#define SYS_AUDIO_STOP      46  // Stop audio playback
+#define SYS_AUDIO_SET_VOL   47  // Set audio volume (ebx = uint8_t volume)
+
+#ifndef _AUDIO_PLAY_REQ_T_DEFINED
+#define _AUDIO_PLAY_REQ_T_DEFINED
+typedef struct {
+    const void* data;
+    uint32_t    length;
+    uint16_t    sample_rate;
+    uint8_t     bits;
+    uint8_t     channels;
+    uint8_t     blocking;
+} audio_play_req_t;
+#endif
+
+#ifndef _AUDIO_STATUS_T_DEFINED
+#define _AUDIO_STATUS_T_DEFINED
+typedef struct {
+    bool     hardware_present;
+    bool     is_playing;
+    uint8_t  volume;
+    uint16_t current_rate;
+    uint8_t  current_bits;
+    uint8_t  current_channels;
+    uint32_t total_samples;
+} audio_status_t;
+#endif
 
 #ifndef _SMP_INFO_T_DEFINED
 #define _SMP_INFO_T_DEFINED

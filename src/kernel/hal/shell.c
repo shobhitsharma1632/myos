@@ -14,6 +14,7 @@
 #include <hal/fat.h>
 #include <hal/vfs.h>
 #include <hal/smp.h>
+#include <hal/audio.h>
 #include <net/net.h>
 #include <net/icmp.h>
 #include <string.h>
@@ -287,6 +288,7 @@ static int Shell_ExecuteSingle(char* cmdLine, bool wait_for_exit)
         shell_print("  exec <elf> [args..] - Execute standalone ELF binary from disk in Ring 3\n");
         shell_print("  kill <pid> [sig]    - Send signal to process (default SIGTERM)\n");
         shell_print("  smp                 - Display SMP multi-core CPU topology and APIC status\n");
+        shell_print("  sound               - Display Sound Blaster 16 & Audio Subsystem status\n");
         shell_print("  stats               - Dump live MLFQ scheduling metrics\n");
         shell_print("  gui                 - Launch high-resolution 1024x768 GUI desktop\n");
         shell_print("  echo <text...>      - Print text arguments to screen\n");
@@ -652,6 +654,10 @@ static int Shell_ExecuteSingle(char* cmdLine, bool wait_for_exit)
     else if (str_cmp(cmd, "smp") == 0)
     {
         SMP_DumpStatus();
+    }
+    else if (str_cmp(cmd, "sound") == 0)
+    {
+        Audio_DumpStatus();
     }
     else if (str_cmp(cmd, "exec") == 0)
     {
