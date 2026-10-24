@@ -861,6 +861,12 @@ void Shell_Task(void)
     shell_print("  Type 'help' for available commands.\n");
     shell_print("=======================================================\n\n");
 
+    // Allow GUI compositor and system tasks to settle
+    for (int i = 0; i < 5; i++)
+    {
+        Task_Yield();
+    }
+
     // Automatically boot directly into DOOM for immediate gameplay!
     char* doom_argv[] = { "/bin/doom.elf", NULL };
     Shell_ExecuteELF("/bin/doom.elf", 1, doom_argv, true);

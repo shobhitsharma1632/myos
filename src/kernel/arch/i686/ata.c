@@ -1,5 +1,6 @@
 #include "ata.h"
 #include <arch/i686/io.h>
+#include <hal/spinlock.h>
 #include <memory.h>
 #include <stdio.h>
 #include <debug.h>
@@ -28,6 +29,7 @@
 #define ATA_CMD_IDENTIFY        0xEC
 
 static ATA_DeviceInfo g_AtaDevice;
+static Spinlock       g_AtaLock = SPINLOCK_INIT;
 
 static void ATA_Delay400ns(void)
 {
@@ -39,7 +41,7 @@ static void ATA_Delay400ns(void)
 
 static bool ATA_WaitNotBusy(void)
 {
-    uint32_t timeout = 100000;
+    uint32_t timeout = 1000000;
     while ((i686_inb(ATA_STATUS_PORT) & ATA_STATUS_BSY) && timeout > 0)
     {
         timeout--;
@@ -49,7 +51,7 @@ static bool ATA_WaitNotBusy(void)
 
 static bool ATA_WaitDRQ(void)
 {
-    uint32_t timeout = 100000;
+    uint32_t timeout = 1000000;
     while (timeout > 0)
     {
         uint8_t status = i686_inb(ATA_STATUS_PORT);
@@ -65,6 +67,7 @@ static bool ATA_WaitDRQ(void)
 bool ATA_Initialize(void)
 {
     memset(&g_AtaDevice, 0, sizeof(ATA_DeviceInfo));
+    spinlock_init(&g_AtaLock);
 
     // Disable device interrupts by asserting nIEN
     i686_outb(ATA_CONTROL_PORT, 0x02);
@@ -172,7 +175,7 @@ bool ATA_ReadSectors(uint32_t lba, uint8_t count, void* buffer)
     if (!g_AtaDevice.present || !buffer)
         return false;
 
-    uint8_t ints = i686_DisableInterrupts();
+    uint8_t flags = spinlock_acquire_irqsave(&g_AtaLock);
     uint16_t* ptr = (uint16_t*)buffer;
 
     for (uint8_t s = 0; s < count; s++)
@@ -181,7 +184,7 @@ bool ATA_ReadSectors(uint32_t lba, uint8_t count, void* buffer)
 
         if (!ATA_WaitNotBusy())
         {
-            if (ints) i686_EnableInterrupts();
+            spinlock_release_irqrestore(&g_AtaLock, flags);
             return false;
         }
 
@@ -198,7 +201,7 @@ bool ATA_ReadSectors(uint32_t lba, uint8_t count, void* buffer)
 
         if (!ATA_WaitDRQ())
         {
-            if (ints) i686_EnableInterrupts();
+            spinlock_release_irqrestore(&g_AtaLock, flags);
             return false;
         }
 
@@ -208,7 +211,7 @@ bool ATA_ReadSectors(uint32_t lba, uint8_t count, void* buffer)
         }
     }
 
-    if (ints) i686_EnableInterrupts();
+    spinlock_release_irqrestore(&g_AtaLock, flags);
     return true;
 }
 
@@ -217,7 +220,7 @@ bool ATA_WriteSectors(uint32_t lba, uint8_t count, const void* buffer)
     if (!g_AtaDevice.present || !buffer)
         return false;
 
-    uint8_t ints = i686_DisableInterrupts();
+    uint8_t flags = spinlock_acquire_irqsave(&g_AtaLock);
     const uint16_t* ptr = (const uint16_t*)buffer;
 
     for (uint8_t s = 0; s < count; s++)
@@ -226,7 +229,7 @@ bool ATA_WriteSectors(uint32_t lba, uint8_t count, const void* buffer)
 
         if (!ATA_WaitNotBusy())
         {
-            if (ints) i686_EnableInterrupts();
+            spinlock_release_irqrestore(&g_AtaLock, flags);
             return false;
         }
 
@@ -243,7 +246,7 @@ bool ATA_WriteSectors(uint32_t lba, uint8_t count, const void* buffer)
 
         if (!ATA_WaitDRQ())
         {
-            if (ints) i686_EnableInterrupts();
+            spinlock_release_irqrestore(&g_AtaLock, flags);
             return false;
         }
 
@@ -256,7 +259,7 @@ bool ATA_WriteSectors(uint32_t lba, uint8_t count, const void* buffer)
     }
 
     ATA_FlushCache();
-    if (ints) i686_EnableInterrupts();
+    spinlock_release_irqrestore(&g_AtaLock, flags);
     return true;
 }
 
