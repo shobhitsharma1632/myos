@@ -1,4 +1,5 @@
 #include <libuser.h>
+#include <libgui.h>
 
 #define MAP_WIDTH  16
 #define MAP_HEIGHT 16
@@ -99,48 +100,47 @@ static Level g_Levels[NUM_LEVELS] = {
         .startDirX = 0.0f, .startDirY = 1.0f,
         .num_enemies = 4,
         .enemies = {
-            { ENEMY_ZOMBIEMAN, 4.0f, 3.0f, 20, STATE_IDLE, 0 },
-            { ENEMY_IMP,       9.0f, 3.0f, 40, STATE_IDLE, 0 },
-            { ENEMY_IMP,       7.0f, 9.0f, 40, STATE_IDLE, 0 },
-            { ENEMY_PINKY,     12.0f, 12.0f, 80, STATE_IDLE, 0 }
+            { ENEMY_ZOMBIEMAN, 2.0f, 5.0f, 20, STATE_IDLE, 0 },
+            { ENEMY_IMP,       8.0f, 3.0f, 40, STATE_IDLE, 0 },
+            { ENEMY_IMP,       3.0f, 9.0f, 40, STATE_IDLE, 0 },
+            { ENEMY_PINKY,     11.0f, 11.0f, 60, STATE_IDLE, 0 }
         },
         .exitX = 13, .exitY = 13
     },
     {
-        .name = "E1M3: Phobos Anomaly (Boss Arena)",
+        .name = "E1M3: Phobos Anomaly",
         .map = {
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1},
-            {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-            {1,0,0,3,3,0,0,0,0,0,0,3,3,0,0,1},
-            {1,0,0,3,3,0,0,0,0,0,0,3,3,0,0,1},
-            {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-            {1,0,0,0,0,0,3,3,3,3,0,0,0,0,0,1},
-            {1,1,0,0,0,0,3,0,0,3,0,0,0,0,1,1},
-            {1,1,0,0,0,0,3,0,0,3,0,0,0,0,1,1},
-            {1,0,0,0,0,0,3,3,3,3,0,0,0,0,0,1},
-            {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-            {1,0,0,3,3,0,0,0,0,0,0,3,3,0,0,1},
-            {1,0,0,3,3,0,0,0,0,0,0,3,3,0,0,1},
-            {1,0,0,0,0,0,0,0,0,0,0,0,0,9,0,1},
-            {1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
+            {2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2},
+            {2,0,0,0,0,0,0,2,2,0,0,0,0,0,0,2},
+            {2,0,3,3,0,0,0,2,2,0,0,0,3,3,0,2},
+            {2,0,3,3,0,0,0,0,0,0,0,0,3,3,0,2},
+            {2,0,0,0,0,2,2,0,0,2,2,0,0,0,0,2},
+            {2,0,0,0,2,2,0,0,0,0,2,2,0,0,0,2},
+            {2,0,0,2,2,0,0,0,0,0,0,2,2,0,0,2},
+            {2,2,0,2,0,0,0,0,0,0,0,0,2,0,2,2},
+            {2,2,0,2,0,0,0,0,0,0,0,0,2,0,2,2},
+            {2,0,0,2,2,0,0,0,0,0,0,2,2,0,0,2},
+            {2,0,0,0,2,2,0,0,0,0,2,2,0,0,0,2},
+            {2,0,0,0,0,2,2,0,0,2,2,0,0,0,0,2},
+            {2,0,3,3,0,0,0,0,0,0,0,0,3,3,0,2},
+            {2,0,3,3,0,0,0,2,2,0,0,0,3,3,0,2},
+            {2,0,0,0,0,0,0,2,2,0,0,0,0,9,0,2},
+            {2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2}
         },
-        .startX = 2.0f, .startY = 2.0f,
-        .startDirX = 1.0f, .startDirY = 0.0f,
+        .startX = 7.5f, .startY = 1.5f,
+        .startDirX = 0.0f, .startDirY = 1.0f,
         .num_enemies = 5,
         .enemies = {
-            { ENEMY_IMP,       6.0f, 4.0f, 40, STATE_IDLE, 0 },
-            { ENEMY_IMP,       10.0f, 4.0f, 40, STATE_IDLE, 0 },
-            { ENEMY_PINKY,     8.0f, 8.0f, 80, STATE_IDLE, 0 },
-            { ENEMY_PINKY,     4.0f, 10.0f, 80, STATE_IDLE, 0 },
-            { ENEMY_PINKY,     12.0f, 10.0f, 80, STATE_IDLE, 0 }
+            { ENEMY_IMP,       4.0f, 5.0f, 40, STATE_IDLE, 0 },
+            { ENEMY_IMP,       11.0f, 5.0f, 40, STATE_IDLE, 0 },
+            { ENEMY_PINKY,     7.5f, 7.5f, 70, STATE_IDLE, 0 },
+            { ENEMY_PINKY,     5.0f, 10.0f, 70, STATE_IDLE, 0 },
+            { ENEMY_PINKY,     10.0f, 10.0f, 70, STATE_IDLE, 0 }
         },
-        .exitX = 13, .exitY = 13
+        .exitX = 13, .exitY = 14
     }
 };
 
-// Player State
 static int   g_CurrentLevelIdx = 0;
 static float g_PlayerX = 2.0f;
 static float g_PlayerY = 2.0f;
@@ -151,19 +151,13 @@ static float g_PlaneY = 0.66f;
 static int   g_PlayerHealth = 100;
 static int   g_PlayerArmor = 50;
 static int   g_PlayerAmmo = 50;
-static int   g_CurrentWeapon = 1; // 1 = Pistol, 2 = Shotgun
+static int   g_CurrentWeapon = 2; // 1 = Pistol, 2 = Shotgun
 static int   g_MuzzleFlash = 0;
 static int   g_Score = 0;
 
-static const char* GetFaceIcon(void)
-{
-    if (g_MuzzleFlash > 0) return "[>:D]";
-    if (g_PlayerHealth > 75) return "[:D ]";
-    if (g_PlayerHealth > 40) return "[:| ]";
-    if (g_PlayerHealth > 15) return "[:( ]";
-    if (g_PlayerHealth > 0)  return "[X_X]";
-    return "[RIP]";
-}
+static gui_window_t* g_Win = NULL;
+
+#define GUI_HUD_H 48
 
 static void LoadLevel(int levelIdx)
 {
@@ -189,14 +183,14 @@ static void FireWeapon(void)
 
     g_PlayerAmmo -= (g_CurrentWeapon == 2) ? 2 : 1;
     if (g_PlayerAmmo < 0) g_PlayerAmmo = 0;
-    g_MuzzleFlash = 2;
+    g_MuzzleFlash = 3;
 
     // Play Sound Blaster 16 Gunshot Sound Effect
     audio_play_wav("/sounds/laser.wav", false);
 
     // Hitscan trace towards target enemy
     Level* lvl = &g_Levels[g_CurrentLevelIdx];
-    int damage = (g_CurrentWeapon == 2) ? 40 : 20;
+    int damage = (g_CurrentWeapon == 2) ? 45 : 22;
 
     for (int i = 0; i < lvl->num_enemies; i++)
     {
@@ -209,7 +203,7 @@ static void FireWeapon(void)
 
         // Check if enemy is in front of player
         float dot = to_x * g_PlayerDirX + to_y * g_PlayerDirY;
-        if (dot > 0 && dist < 25.0f)
+        if (dot > 0 && dist < 30.0f)
         {
             e->hp -= damage;
             if (e->hp <= 0)
@@ -243,7 +237,6 @@ static void UpdateEnemies(void)
         if (dist_sq < 36.0f) // Within detection range
         {
             e->state = STATE_CHASE;
-            // Move slowly towards player
             float step = 0.05f;
             float len = (dist_sq > 0.01f) ? (1.0f / (float)sqrt((double)dist_sq)) : 0.0f;
             float next_x = e->x + dx * len * step;
@@ -274,6 +267,472 @@ static void UpdateEnemies(void)
         }
     }
 }
+
+// -------------------------------------------------------------
+// 32-Bit Graphical Texture & Lighting Engine
+// -------------------------------------------------------------
+
+static uint32_t SampleWallTexture(int wallType, int tx, int ty)
+{
+    tx &= 15;
+    ty &= 15;
+
+    if (wallType == 1) // High-Tech Steel Metal Panels (E1M1)
+    {
+        if (tx == 0 || tx == 15 || ty == 0 || ty == 15) return 0x001E293B; // Dark border groove
+        if (ty == 7 || ty == 8) return 0x00334155; // Horizontal seam divider
+        if ((tx == 2 || tx == 13) && (ty == 2 || ty == 13)) return 0x0094A3B8; // Steel rivet highlight
+        if ((tx == 3 || tx == 14) && (ty == 3 || ty == 14)) return 0x000F172A; // Rivet shadow
+        if (ty >= 3 && ty <= 5 && tx >= 5 && tx <= 10) return 0x001E293B; // Air vent louvers
+        return 0x00475569; // Metallic steel blue-gray base
+    }
+    else if (wallType == 2) // Demonic Red Brick / Stone (E1M2/E1M3)
+    {
+        if (ty % 4 == 0) return 0x00450A0A; // Horizontal mortar
+        int staggered = (ty / 4) % 2;
+        if ((tx == 0 && !staggered) || (tx == 8 && staggered)) return 0x00450A0A; // Vertical mortar
+        if (ty % 4 == 1) return 0x00B91C1C; // Brick top highlight
+        if (ty % 4 == 3) return 0x007F1D1D; // Brick bottom shadow
+        return 0x00991B1B; // Brick crimson base
+    }
+    else if (wallType == 3) // Toxic Slime / Hazard Stripes
+    {
+        if (((tx + ty) % 8) < 4) return 0x00EAB308; // Hazard yellow
+        return 0x0018181B; // Dark charcoal stripe
+    }
+    else if (wallType == 9) // Exit Airlock Door
+    {
+        if (tx >= 4 && tx <= 11 && ty >= 3 && ty <= 6) return 0x00DC2626; // Red EXIT badge
+        if (tx >= 5 && tx <= 10 && ty >= 4 && ty <= 5) return 0x00FFFFFF; // EXIT text white
+        if (tx >= 6 && tx <= 9 && ty >= 9 && ty <= 12) return 0x0010B981; // Green airlock handle
+        if (tx == 0 || tx == 15 || ty == 0 || ty == 15) return 0x000F172A;
+        return 0x0064748B; // Titanium door
+    }
+    return 0x00475569;
+}
+
+static inline uint32_t ApplyLighting(uint32_t color, float shade)
+{
+    if (shade > 1.0f) shade = 1.0f;
+    if (shade < 0.04f) shade = 0.04f;
+
+    uint32_t r = (uint32_t)(((color >> 16) & 0xFF) * shade);
+    uint32_t g = (uint32_t)(((color >> 8) & 0xFF) * shade);
+    uint32_t b = (uint32_t)((color & 0xFF) * shade);
+
+    if (r > 255) r = 255;
+    if (g > 255) g = 255;
+    if (b > 255) b = 255;
+
+    return (r << 16) | (g << 8) | b;
+}
+
+// -------------------------------------------------------------
+// 16x16 Bitmapped Monster Sprites
+// -------------------------------------------------------------
+
+#define T 0xFF000000 // Transparent
+
+static const uint32_t s_ZombieSprite[16][16] = {
+    {T,T,T,T,T,0x004D7C0F,0x004D7C0F,0x004D7C0F,0x004D7C0F,0x004D7C0F,T,T,T,T,T,T},
+    {T,T,T,T,0x004D7C0F,0x004D7C0F,0x004D7C0F,0x004D7C0F,0x004D7C0F,0x004D7C0F,0x004D7C0F,T,T,T,T,T},
+    {T,T,T,T,0x00FBBF24,0x00DC2626,0x00FBBF24,0x00FBBF24,0x00DC2626,0x00FBBF24,T,T,T,T,T,T},
+    {T,T,T,T,0x00FBBF24,0x00FBBF24,0x00B45309,0x00B45309,0x00FBBF24,0x00FBBF24,T,T,T,T,T,T},
+    {T,T,T,0x0078350F,0x0078350F,0x0078350F,0x0078350F,0x0078350F,0x0078350F,0x0078350F,0x0078350F,T,T,T,T,T},
+    {T,T,0x00FBBF24,0x0078350F,0x00334155,0x0078350F,0x0078350F,0x00334155,0x0078350F,0x00FBBF24,0x0094A3B8,0x0094A3B8,0x0094A3B8,T,T,T},
+    {T,T,0x00FBBF24,0x0078350F,0x0078350F,0x0078350F,0x0078350F,0x0078350F,0x0078350F,0x00FBBF24,0x00334155,0x00334155,0x00334155,T,T,T},
+    {T,T,T,0x0078350F,0x0078350F,0x0078350F,0x0078350F,0x0078350F,0x0078350F,0x0078350F,T,T,T,T,T,T},
+    {T,T,T,0x00365314,0x00365314,0x00365314,0x00365314,0x00365314,0x00365314,0x00365314,T,T,T,T,T,T},
+    {T,T,T,0x00365314,0x00365314,0x00365314,0x00365314,0x00365314,0x00365314,0x00365314,T,T,T,T,T,T},
+    {T,T,T,0x00365314,0x00365314,T,T,0x00365314,0x00365314,T,T,T,T,T,T,T},
+    {T,T,T,0x00365314,0x00365314,T,T,0x00365314,0x00365314,T,T,T,T,T,T,T},
+    {T,T,T,0x0018181B,0x0018181B,T,T,0x0018181B,0x0018181B,T,T,T,T,T,T,T},
+    {T,T,0x0018181B,0x0018181B,T,T,T,T,0x0018181B,0x0018181B,T,T,T,T,T,T},
+    {T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T},
+    {T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T}
+};
+
+static const uint32_t s_ImpSprite[16][16] = {
+    {T,T,0x00451A03,T,T,T,T,T,T,T,T,0x00451A03,T,T,T,T},
+    {T,T,T,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,T,T,T,T,T},
+    {T,T,0x007C2D12,0x00F97316,0x00FEF08A,0x007C2D12,0x007C2D12,0x00F97316,0x00FEF08A,0x007C2D12,T,T,T,T,T,T},
+    {T,T,0x007C2D12,0x007C2D12,0x00451A03,0x00FEF08A,0x00FEF08A,0x00451A03,0x007C2D12,0x007C2D12,T,T,T,T,T,T},
+    {T,0x00FEF08A,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,0x00FEF08A,T,T,T,T,T,T},
+    {0x00FEF08A,0x007C2D12,0x007C2D12,0x00451A03,0x007C2D12,0x007C2D12,0x00451A03,0x007C2D12,0x007C2D12,0x00FEF08A,T,T,T,T,T,T},
+    {T,0x00FEF08A,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,0x00FEF08A,T,T,T,T,T,T},
+    {T,T,0x007C2D12,0x007C2D12,0x00451A03,0x00451A03,0x007C2D12,0x007C2D12,T,T,T,T,T,T,T,T},
+    {T,T,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,0x007C2D12,T,T,T,T,T,T,T,T},
+    {T,T,0x00451A03,0x007C2D12,T,T,0x007C2D12,0x00451A03,T,T,T,T,T,T,T,T},
+    {T,0x00451A03,0x007C2D12,T,T,T,T,0x007C2D12,0x00451A03,T,T,T,T,T,T,T},
+    {T,0x00FEF08A,0x00451A03,T,T,T,T,0x00451A03,0x00FEF08A,T,T,T,T,T,T,T},
+    {T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T},
+    {T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T},
+    {T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T},
+    {T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T}
+};
+
+static const uint32_t s_PinkySprite[16][16] = {
+    {T,0x00F8FAFC,T,T,T,T,T,T,T,T,0x00F8FAFC,T,T,T,T,T},
+    {T,T,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,T,T,T,T,T,T},
+    {T,0x00EC4899,0x00EF4444,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x00EF4444,0x00EC4899,T,T,T,T,T,T,T},
+    {0x00F8FAFC,0x00EC4899,0x00EC4899,0x004C0519,0x004C0519,0x004C0519,0x004C0519,0x00EC4899,0x00EC4899,0x00F8FAFC,T,T,T,T,T,T},
+    {T,0x00EC4899,0x00F8FAFC,0x004C0519,0x004C0519,0x004C0519,0x004C0519,0x00F8FAFC,0x00EC4899,T,T,T,T,T,T,T},
+    {0x009D174D,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x009D174D,T,T,T,T,T,T},
+    {0x009D174D,0x00EC4899,0x009D174D,0x00EC4899,0x00EC4899,0x00EC4899,0x009D174D,0x00EC4899,0x009D174D,T,T,T,T,T,T,T},
+    {T,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,T,T,T,T,T,T,T},
+    {T,0x009D174D,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x00EC4899,0x009D174D,T,T,T,T,T,T,T,T},
+    {T,0x009D174D,0x009D174D,T,T,T,0x009D174D,0x009D174D,T,T,T,T,T,T,T,T},
+    {0x009D174D,0x00EC4899,T,T,T,T,T,0x00EC4899,0x009D174D,T,T,T,T,T,T,T},
+    {0x00F8FAFC,0x009D174D,T,T,T,T,T,0x009D174D,0x00F8FAFC,T,T,T,T,T,T,T},
+    {T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T},
+    {T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T},
+    {T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T},
+    {T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T}
+};
+
+// -------------------------------------------------------------
+// Graphical Weapon & HUD Rendering
+// -------------------------------------------------------------
+
+static void RenderWeapon(gui_window_t* win, int client_w, int view_h)
+{
+    int cx = client_w / 2;
+    int recoil = (g_MuzzleFlash > 0) ? 8 : 0;
+    int baseY = view_h - 10 + recoil;
+
+    if (g_CurrentWeapon == 2) // Shotgun
+    {
+        // Double steel barrels
+        gui_fill_rect(win, cx - 18, baseY - 65, 14, 55, 0x00475569);
+        gui_fill_rect(win, cx + 4,  baseY - 65, 14, 55, 0x00475569);
+        gui_fill_rect(win, cx - 16, baseY - 65, 3,  55, 0x0094A3B8); // Barrel highlight
+        gui_fill_rect(win, cx + 6,  baseY - 65, 3,  55, 0x0094A3B8);
+        // Bore holes
+        gui_fill_rect(win, cx - 16, baseY - 67, 10, 3, 0x000F172A);
+        gui_fill_rect(win, cx + 6,  baseY - 67, 10, 3, 0x000F172A);
+        // Walnut wood forend pump
+        gui_fill_rect(win, cx - 22, baseY - 35, 44, 25, 0x00B45309);
+        gui_draw_rect(win, cx - 22, baseY - 35, 44, 25, 0x0078350F);
+        // Grip grooves
+        gui_draw_line(win, cx - 18, baseY - 28, cx + 18, baseY - 28, 0x0078350F);
+        gui_draw_line(win, cx - 18, baseY - 20, cx + 18, baseY - 20, 0x0078350F);
+        // Brass bead sight
+        gui_fill_rect(win, cx - 1, baseY - 68, 3, 3, 0x00FBBF24);
+    }
+    else // Pistol
+    {
+        // Black steel slide
+        gui_fill_rect(win, cx - 10, baseY - 50, 20, 38, 0x00334155);
+        gui_fill_rect(win, cx - 8,  baseY - 50, 3,  38, 0x0064748B); // Highlight
+        gui_fill_rect(win, cx - 2,  baseY - 53, 4,  3,  0x0094A3B8); // Iron sight
+        // Grip
+        gui_fill_rect(win, cx - 8,  baseY - 12, 16, 25, 0x001E293B);
+    }
+
+    // Dynamic Muzzle Flash Fireball
+    if (g_MuzzleFlash > 0)
+    {
+        int flashY = baseY - 75;
+        // Outer orange flame burst
+        gui_fill_circle(win, cx, flashY, 24, 0x00EF4444);
+        gui_fill_circle(win, cx - 12, flashY + 4, 14, 0x00F97316);
+        gui_fill_circle(win, cx + 12, flashY + 4, 14, 0x00F97316);
+        // Inner intense yellow
+        gui_fill_circle(win, cx, flashY, 15, 0x00FBBF24);
+        // Brilliant white core
+        gui_fill_circle(win, cx, flashY, 8, 0x00FFFFFF);
+        g_MuzzleFlash--;
+    }
+}
+
+static void RenderHUD(gui_window_t* win, int client_w, int client_h, int view_h)
+{
+    Level* lvl = &g_Levels[g_CurrentLevelIdx];
+
+    // Status Bar Background Panel
+    gui_fill_rect(win, 0, view_h, client_w, GUI_HUD_H, 0x000F172A);
+    gui_draw_line(win, 0, view_h, client_w, view_h, 0x00334155);
+    gui_draw_line(win, 0, view_h + 1, client_w, view_h + 1, 0x00475569);
+
+    // Level Header & Score
+    gui_draw_text(win, 12, view_h + 4, lvl->name, 0x00FBBF24, GUI_COLOR_TRANSPARENT);
+    char score_str[32];
+    snprintf(score_str, sizeof(score_str), "SCORE: %d", g_Score);
+    gui_draw_text(win, client_w - 110, view_h + 4, score_str, 0x0010B981, GUI_COLOR_TRANSPARENT);
+
+    // Doomguy Animated Face in Center of HUD
+    int faceX = client_w / 2 - 16;
+    int faceY = view_h + 10;
+    gui_fill_rect(win, faceX - 2, faceY - 2, 36, 36, 0x001E293B);
+    gui_draw_rect(win, faceX - 2, faceY - 2, 36, 36, 0x0064748B);
+
+    // Buzzcut hair
+    gui_fill_rect(win, faceX + 4, faceY + 2, 24, 7, 0x0078350F);
+    // Face skin
+    gui_fill_rect(win, faceX + 4, faceY + 9, 24, 18, 0x00FBBF24);
+    // Eyes
+    gui_fill_rect(win, faceX + 8,  faceY + 13, 4, 3, 0x00FFFFFF);
+    gui_fill_rect(win, faceX + 20, faceY + 13, 4, 3, 0x00FFFFFF);
+    gui_fill_rect(win, faceX + 10, faceY + 14, 2, 2, 0x000F172A);
+    gui_fill_rect(win, faceX + 22, faceY + 14, 2, 2, 0x000F172A);
+
+    // Animated mouth based on health
+    if (g_PlayerHealth > 60)
+    {
+        // Confident grin
+        gui_draw_line(win, faceX + 10, faceY + 21, faceX + 22, faceY + 21, 0x00FFFFFF);
+        gui_fill_rect(win, faceX + 11, faceY + 22, 10, 2, 0x00FFFFFF);
+    }
+    else if (g_PlayerHealth > 25)
+    {
+        // Bruised grimace
+        gui_draw_line(win, faceX + 10, faceY + 22, faceX + 22, faceY + 22, 0x000F172A);
+        gui_fill_rect(win, faceX + 6, faceY + 12, 3, 4, 0x00DC2626); // Cheek scratch
+    }
+    else
+    {
+        // Critical battered face
+        gui_draw_line(win, faceX + 9, faceY + 23, faceX + 23, faceY + 23, 0x007F1D1D);
+        gui_fill_rect(win, faceX + 6,  faceY + 11, 4, 6, 0x00DC2626);
+        gui_fill_rect(win, faceX + 14, faceY + 22, 5, 4, 0x00DC2626);
+    }
+
+    // Health Meter Bar
+    gui_draw_text(win, 12, view_h + 17, "HEALTH", 0x0094A3B8, GUI_COLOR_TRANSPARENT);
+    gui_draw_rect(win, 12, view_h + 29, 82, 12, 0x00334155);
+    int hp_w = (g_PlayerHealth * 80) / 100;
+    if (hp_w < 0) hp_w = 0;
+    if (hp_w > 80) hp_w = 80;
+    uint32_t hp_col = (g_PlayerHealth > 50) ? 0x0022C55E : ((g_PlayerHealth > 25) ? 0x00F59E0B : 0x00EF4444);
+    gui_fill_rect(win, 13, view_h + 30, hp_w, 10, hp_col);
+    char hp_str[16];
+    snprintf(hp_str, sizeof(hp_str), "%d%%", g_PlayerHealth);
+    gui_draw_text(win, 98, view_h + 29, hp_str, hp_col, GUI_COLOR_TRANSPARENT);
+
+    // Armor Meter Bar
+    gui_draw_text(win, 140, view_h + 17, "ARMOR", 0x0094A3B8, GUI_COLOR_TRANSPARENT);
+    gui_draw_rect(win, 140, view_h + 29, 72, 12, 0x00334155);
+    int ar_w = (g_PlayerArmor * 70) / 100;
+    if (ar_w < 0) ar_w = 0;
+    if (ar_w > 70) ar_w = 70;
+    gui_fill_rect(win, 141, view_h + 30, ar_w, 10, 0x0006B6D4);
+    char ar_str[16];
+    snprintf(ar_str, sizeof(ar_str), "%d%%", g_PlayerArmor);
+    gui_draw_text(win, 216, view_h + 29, ar_str, 0x0006B6D4, GUI_COLOR_TRANSPARENT);
+
+    // Ammo Counter & Weapon Name
+    gui_draw_text(win, client_w - 180, view_h + 17, "AMMO", 0x0094A3B8, GUI_COLOR_TRANSPARENT);
+    char ammo_str[16];
+    snprintf(ammo_str, sizeof(ammo_str), "%d", g_PlayerAmmo);
+    gui_draw_text(win, client_w - 180, view_h + 29, ammo_str, 0x00FBBF24, GUI_COLOR_TRANSPARENT);
+
+    const char* wpn_name = (g_CurrentWeapon == 2) ? "SHOTGUN" : "PISTOL";
+    gui_draw_text(win, client_w - 110, view_h + 29, wpn_name, 0x00F8FAFC, GUI_COLOR_TRANSPARENT);
+}
+
+// -------------------------------------------------------------
+// Graphical 3D Raycasting Renderer
+// -------------------------------------------------------------
+
+static void RenderGUI(void)
+{
+    if (!g_Win || !g_Win->buffer) return;
+
+    int client_w = g_Win->client_w;
+    int client_h = g_Win->client_h;
+    int view_h   = client_h - GUI_HUD_H;
+    uint32_t* buf = g_Win->buffer;
+    Level* lvl = &g_Levels[g_CurrentLevelIdx];
+
+    // 1. Shaded Ceiling & Floor Gradients
+    for (int y = 0; y < view_h / 2; y++)
+    {
+        // Ceiling: dark slate navy gradient
+        int r = 11 + (y * 19) / (view_h / 2);
+        int g = 15 + (y * 26) / (view_h / 2);
+        int b = 25 + (y * 34) / (view_h / 2);
+        uint32_t col = (r << 16) | (g << 8) | b;
+        uint32_t* row = &buf[y * client_w];
+        for (int x = 0; x < client_w; x++) row[x] = col;
+    }
+    for (int y = view_h / 2; y < view_h; y++)
+    {
+        // Floor: textured dungeon stone fading to dark
+        int dist = y - view_h / 2;
+        int r = 24 + (dist * 20) / (view_h / 2);
+        int g = 24 + (dist * 20) / (view_h / 2);
+        int b = 28 + (dist * 22) / (view_h / 2);
+        uint32_t* row = &buf[y * client_w];
+        for (int x = 0; x < client_w; x++)
+        {
+            bool tile = ((x / 32) + (y / 16)) % 2 == 0;
+            int tr = tile ? (r + 4) : r;
+            int tg = tile ? (g + 4) : g;
+            int tb = tile ? (b + 4) : b;
+            row[x] = (tr << 16) | (tg << 8) | tb;
+        }
+    }
+
+    // 2. Cast 1 Ray per Screen Column with 32-Bit Textures
+    float z_buffer[client_w];
+
+    for (int x = 0; x < client_w; x++)
+    {
+        float cameraX = 2.0f * (float)x / (float)client_w - 1.0f;
+        float rayDirX = g_PlayerDirX + g_PlaneX * cameraX;
+        float rayDirY = g_PlayerDirY + g_PlaneY * cameraX;
+
+        int mapX = (int)g_PlayerX;
+        int mapY = (int)g_PlayerY;
+
+        float deltaDistX = (rayDirX == 0) ? 1e30f : (float)fabs(1.0f / rayDirX);
+        float deltaDistY = (rayDirY == 0) ? 1e30f : (float)fabs(1.0f / rayDirY);
+        float sideDistX, sideDistY;
+        int stepX, stepY;
+
+        if (rayDirX < 0) { stepX = -1; sideDistX = (g_PlayerX - mapX) * deltaDistX; }
+        else { stepX = 1; sideDistX = (mapX + 1.0f - g_PlayerX) * deltaDistX; }
+        if (rayDirY < 0) { stepY = -1; sideDistY = (g_PlayerY - mapY) * deltaDistY; }
+        else { stepY = 1; sideDistY = (mapY + 1.0f - g_PlayerY) * deltaDistY; }
+
+        int hit = 0;
+        int side = 0;
+        while (hit == 0)
+        {
+            if (sideDistX < sideDistY)
+            {
+                sideDistX += deltaDistX;
+                mapX += stepX;
+                side = 0;
+            }
+            else
+            {
+                sideDistY += deltaDistY;
+                mapY += stepY;
+                side = 1;
+            }
+            if (mapX >= 0 && mapX < MAP_WIDTH && mapY >= 0 && mapY < MAP_HEIGHT)
+            {
+                if (lvl->map[mapY][mapX] > 0) hit = lvl->map[mapY][mapX];
+            }
+            else
+            {
+                hit = 1;
+            }
+        }
+
+        float perpWallDist = (side == 0) ? (sideDistX - deltaDistX) : (sideDistY - deltaDistY);
+        if (perpWallDist < 0.1f) perpWallDist = 0.1f;
+        z_buffer[x] = perpWallDist;
+
+        int lineHeight = (int)(view_h / perpWallDist);
+        int drawStart = -lineHeight / 2 + view_h / 2;
+        int drawEnd   =  lineHeight / 2 + view_h / 2;
+
+        int start_y = (drawStart < 0) ? 0 : drawStart;
+        int end_y   = (drawEnd >= view_h) ? (view_h - 1) : drawEnd;
+
+        float wallX = (side == 0) ? (g_PlayerY + perpWallDist * rayDirY) : (g_PlayerX + perpWallDist * rayDirX);
+        wallX -= (float)((int)wallX);
+        if (wallX < 0.0f) wallX += 1.0f;
+        int texX = (int)(wallX * 16.0f) & 15;
+
+        float shade = 1.0f / (1.0f + 0.12f * perpWallDist * perpWallDist);
+        if (side == 1) shade *= 0.75f; // Side shadow
+
+        for (int y = start_y; y <= end_y; y++)
+        {
+            int d = y * 256 - view_h * 128 + lineHeight * 128;
+            int texY = ((d * 16) / lineHeight) / 256;
+            if (texY < 0) texY = 0;
+            if (texY > 15) texY = 15;
+
+            uint32_t col = SampleWallTexture(hit, texX, texY);
+            buf[y * client_w + x] = ApplyLighting(col, shade);
+        }
+    }
+
+    // 3. Project 2.5D Monster Sprites (Depth-tested against z_buffer)
+    for (int i = 0; i < lvl->num_enemies; i++)
+    {
+        Enemy* e = &lvl->enemies[i];
+        if (e->state == STATE_DEAD) continue;
+
+        float spriteX = e->x - g_PlayerX;
+        float spriteY = e->y - g_PlayerY;
+
+        float invDet = 1.0f / (g_PlaneX * g_PlayerDirY - g_PlayerDirX * g_PlaneY);
+        float transformX = invDet * (g_PlayerDirY * spriteX - g_PlayerDirX * spriteY);
+        float transformY = invDet * (-g_PlaneY * spriteX + g_PlaneX * spriteY);
+
+        if (transformY > 0.3f)
+        {
+            int spriteScreenX = (int)((client_w / 2) * (1.0f + transformX / transformY));
+            int spriteSize = (int)fabs(view_h / transformY);
+            if (spriteSize < 1) spriteSize = 1;
+
+            int drawStartX = -spriteSize / 2 + spriteScreenX;
+            int drawEndX   =  spriteSize / 2 + spriteScreenX;
+            int drawStartY = -spriteSize / 2 + view_h / 2;
+            int drawEndY   =  spriteSize / 2 + view_h / 2;
+
+            if (drawStartX < 0) drawStartX = 0;
+            if (drawEndX >= client_w) drawEndX = client_w - 1;
+            if (drawStartY < 0) drawStartY = 0;
+            if (drawEndY >= view_h) drawEndY = view_h - 1;
+
+            const uint32_t (*sprite_tex)[16] = (e->type == ENEMY_PINKY) ? s_PinkySprite :
+                                               ((e->type == ENEMY_IMP) ? s_ImpSprite : s_ZombieSprite);
+
+            float spriteShade = 1.0f / (1.0f + 0.12f * transformY * transformY);
+
+            for (int stripe = drawStartX; stripe <= drawEndX; stripe++)
+            {
+                if (transformY < z_buffer[stripe])
+                {
+                    int texX = (int)((stripe - (-spriteSize / 2 + spriteScreenX)) * 16 / spriteSize);
+                    if (texX < 0) texX = 0;
+                    if (texX > 15) texX = 15;
+
+                    for (int y = drawStartY; y <= drawEndY; y++)
+                    {
+                        int d = y - (-spriteSize / 2 + view_h / 2);
+                        int texY = (d * 16) / spriteSize;
+                        if (texY < 0) texY = 0;
+                        if (texY > 15) texY = 15;
+
+                        uint32_t color = sprite_tex[texY][texX];
+                        if (color != T)
+                        {
+                            if (e->state == STATE_HURT)
+                            {
+                                color = 0x00FFFFFF; // Flash white on damage
+                            }
+                            else
+                            {
+                                color = ApplyLighting(color, spriteShade);
+                            }
+                            buf[y * client_w + stripe] = color;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Render First-Person Weapon Sprite
+    RenderWeapon(g_Win, client_w, view_h);
+
+    // 5. Render Graphical Doomguy HUD Status Bar
+    RenderHUD(g_Win, client_w, client_h, view_h);
+
+    // 6. Blit Window Backbuffer to GUI Desktop
+    gui_present(g_Win);
+}
+
+// -------------------------------------------------------------
+// ASCII Terminal Render (Fallback & Automated Test Mode)
+// -------------------------------------------------------------
 
 #define SCREEN_W 40
 #define SCREEN_H 16
@@ -307,151 +766,43 @@ static void RenderFrame(void)
 
         float deltaDistX = (rayDirX == 0) ? 1e30f : (float)fabs(1.0f / rayDirX);
         float deltaDistY = (rayDirY == 0) ? 1e30f : (float)fabs(1.0f / rayDirY);
-
         float sideDistX, sideDistY;
         int stepX, stepY;
+
+        if (rayDirX < 0) { stepX = -1; sideDistX = (g_PlayerX - mapX) * deltaDistX; }
+        else { stepX = 1; sideDistX = (mapX + 1.0f - g_PlayerX) * deltaDistX; }
+        if (rayDirY < 0) { stepY = -1; sideDistY = (g_PlayerY - mapY) * deltaDistY; }
+        else { stepY = 1; sideDistY = (mapY + 1.0f - g_PlayerY) * deltaDistY; }
+
         int hit = 0;
         int side = 0;
-
-        if (rayDirX < 0)
-        {
-            stepX = -1;
-            sideDistX = (g_PlayerX - mapX) * deltaDistX;
-        }
-        else
-        {
-            stepX = 1;
-            sideDistX = (mapX + 1.0f - g_PlayerX) * deltaDistX;
-        }
-
-        if (rayDirY < 0)
-        {
-            stepY = -1;
-            sideDistY = (g_PlayerY - mapY) * deltaDistY;
-        }
-        else
-        {
-            stepY = 1;
-            sideDistY = (mapY + 1.0f - g_PlayerY) * deltaDistY;
-        }
-
-        // DDA Step
         while (hit == 0)
         {
-            if (sideDistX < sideDistY)
-            {
-                sideDistX += deltaDistX;
-                mapX += stepX;
-                side = 0;
-            }
-            else
-            {
-                sideDistY += deltaDistY;
-                mapY += stepY;
-                side = 1;
-            }
-
+            if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }
+            else { sideDistY += deltaDistY; mapY += stepY; side = 1; }
             if (mapX >= 0 && mapX < MAP_WIDTH && mapY >= 0 && mapY < MAP_HEIGHT)
             {
-                if (lvl->map[mapY][mapX] > 0)
-                {
-                    hit = lvl->map[mapY][mapX];
-                }
+                if (lvl->map[mapY][mapX] > 0) hit = lvl->map[mapY][mapX];
             }
-            else
-            {
-                break;
-            }
+            else hit = 1;
         }
 
         float perpWallDist = (side == 0) ? (sideDistX - deltaDistX) : (sideDistY - deltaDistY);
         if (perpWallDist < 0.1f) perpWallDist = 0.1f;
         z_buffer[x] = perpWallDist;
 
-        int lineHeight = (int)((float)SCREEN_H / perpWallDist);
+        int lineHeight = (int)(SCREEN_H / perpWallDist);
         int drawStart = -lineHeight / 2 + SCREEN_H / 2;
-        if (drawStart < 0) drawStart = 0;
         int drawEnd = lineHeight / 2 + SCREEN_H / 2;
+        if (drawStart < 0) drawStart = 0;
         if (drawEnd >= SCREEN_H) drawEnd = SCREEN_H - 1;
 
-        // Wall Texture Character based on distance and orientation
-        char wall_char = '#';
-        if (hit == 9) wall_char = 'E'; // Exit door
-        else if (perpWallDist > 6.0f) wall_char = ':';
-        else if (perpWallDist > 3.0f) wall_char = '=';
-        else if (side == 1) wall_char = '|';
-        else wall_char = '#';
-
+        char wallChar = (hit == 9) ? '|' : ((hit == 2) ? '=' : '#');
         for (int y = drawStart; y <= drawEnd; y++)
         {
-            screen[y][x] = wall_char;
+            screen[y][x] = wallChar;
         }
     }
-
-    // Render Enemies
-    for (int i = 0; i < lvl->num_enemies; i++)
-    {
-        Enemy* e = &lvl->enemies[i];
-        if (e->state == STATE_DEAD) continue;
-
-        float spriteX = e->x - g_PlayerX;
-        float spriteY = e->y - g_PlayerY;
-
-        float invDet = 1.0f / (g_PlaneX * g_PlayerDirY - g_PlayerDirX * g_PlaneY);
-        float transformX = invDet * (g_PlayerDirY * spriteX - g_PlayerDirX * spriteY);
-        float transformY = invDet * (-g_PlaneY * spriteX + g_PlaneX * spriteY);
-
-        if (transformY > 0.3f)
-        {
-            int spriteScreenX = (int)((SCREEN_W / 2) * (1.0f + transformX / transformY));
-            int spriteSize = (int)fabs(SCREEN_H / transformY);
-            if (spriteSize < 1) spriteSize = 1;
-
-            int drawStartX = -spriteSize / 2 + spriteScreenX;
-            int drawEndX = spriteSize / 2 + spriteScreenX;
-            int drawStartY = -spriteSize / 2 + SCREEN_H / 2;
-            int drawEndY = spriteSize / 2 + SCREEN_H / 2;
-
-            if (drawStartX < 0) drawStartX = 0;
-            if (drawEndX >= SCREEN_W) drawEndX = SCREEN_W - 1;
-            if (drawStartY < 0) drawStartY = 0;
-            if (drawEndY >= SCREEN_H) drawEndY = SCREEN_H - 1;
-
-            char sprite_char = (e->type == ENEMY_PINKY) ? 'P' : ((e->type == ENEMY_IMP) ? 'I' : 'Z');
-            if (e->state == STATE_ATTACK) sprite_char = '!';
-            if (e->state == STATE_HURT) sprite_char = 'X';
-
-            for (int stripe = drawStartX; stripe <= drawEndX; stripe++)
-            {
-                if (transformY < z_buffer[stripe])
-                {
-                    for (int y = drawStartY; y <= drawEndY; y++)
-                    {
-                        screen[y][stripe] = sprite_char;
-                    }
-                }
-            }
-        }
-    }
-
-    // Render Gun Sprite / Muzzle Flash at bottom center
-    int gunCol = SCREEN_W / 2;
-    if (g_MuzzleFlash > 0)
-    {
-        screen[SCREEN_H - 4][gunCol - 1] = '\\';
-        screen[SCREEN_H - 4][gunCol]     = '*';
-        screen[SCREEN_H - 4][gunCol + 1] = '/';
-        g_MuzzleFlash--;
-    }
-    screen[SCREEN_H - 3][gunCol - 1] = '|';
-    screen[SCREEN_H - 3][gunCol]     = '|';
-    screen[SCREEN_H - 3][gunCol + 1] = '|';
-    screen[SCREEN_H - 2][gunCol - 1] = '[';
-    screen[SCREEN_H - 2][gunCol]     = '=';
-    screen[SCREEN_H - 2][gunCol + 1] = ']';
-    screen[SCREEN_H - 1][gunCol - 1] = '/';
-    screen[SCREEN_H - 1][gunCol]     = ' ';
-    screen[SCREEN_H - 1][gunCol + 1] = '\\';
 
     // Print to screen
     printf("\033[H\033[2J");
@@ -465,13 +816,8 @@ static void RenderFrame(void)
         printf("|%s|\n", screen[y]);
     }
     printf("+----------------------------------------+\n");
-
-    // Doomguy Status Bar
-    printf(" %s | HEALTH: %3d%% | ARMOR: %3d%% | AMMO: %2d | WPN: %s\n",
-           GetFaceIcon(), g_PlayerHealth, g_PlayerArmor, g_PlayerAmmo,
-           (g_CurrentWeapon == 2) ? "SHOTGUN" : "PISTOL ");
-    printf(" CONTROLS: W/S (Move), A/D (Turn), Space (Fire), 1/2 (Wpn), Q (Quit)\n");
-    printf(" SOUND   : Sound Blaster 16 DSP Audio Active (0x220, IRQ 5, DMA 1/5)\n");
+    printf(" HEALTH: %3d%% | ARMOR: %3d%% | AMMO: %2d | WPN: %s\n",
+           g_PlayerHealth, g_PlayerArmor, g_PlayerAmmo, (g_CurrentWeapon == 2) ? "SHOTGUN" : "PISTOL ");
     printf("==================================================\n");
 }
 
@@ -525,19 +871,64 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    // Interactive Loop
+    // Create 32-bit High-Resolution Graphical Window on the Desktop
+    g_Win = gui_create_window("DOOM - Phobos Mission (3D Raycaster)", 240, 80, 540, 440);
+
+    // Interactive Game Loop
     while (g_PlayerHealth > 0)
     {
-        RenderFrame();
+        // 1. Render Current Frame (GUI or Console fallback)
+        if (g_Win)
+        {
+            RenderGUI();
+        }
+        else
+        {
+            RenderFrame();
+        }
 
-        char c = 0;
+        // 2. Poll Input Events (Window Server & Raw Keyboard)
         bool quit = false;
-        while (sys_read(&c, 1) > 0 && c != 0)
+        char c = 0;
+
+        // Poll GUI Window Events
+        if (g_Win)
+        {
+            gui_event_t ev;
+            while (gui_poll_event(g_Win, &ev))
+            {
+                if (ev.type == GUI_EVENT_CLOSE)
+                {
+                    quit = true;
+                    break;
+                }
+                else if (ev.type == GUI_EVENT_KEY_DOWN)
+                {
+                    c = (char)ev.key_char;
+                }
+                else if (ev.type == GUI_EVENT_MOUSE_DOWN)
+                {
+                    FireWeapon(); // Left mouse click fires weapon!
+                }
+            }
+        }
+
+        // Also drain hardware keyboard buffer
+        if (c == 0)
+        {
+            char raw_c = 0;
+            if (sys_read(&raw_c, 1) > 0)
+            {
+                c = raw_c;
+            }
+        }
+
+        // Handle Movement & Weapon Controls
+        if (c != 0)
         {
             if (c == 'q' || c == 'Q')
             {
                 quit = true;
-                break;
             }
             else if (c == 'w' || c == 'W')
             {
@@ -549,7 +940,7 @@ int main(int argc, char* argv[])
                     g_PlayerX = nx;
                     g_PlayerY = ny;
                 }
-                else if (lvl->map[(int)ny][(int)nx] == 9) // Exit door
+                else if (lvl->map[(int)ny][(int)nx] == 9) // Exit airlock door
                 {
                     LoadLevel((g_CurrentLevelIdx + 1) % NUM_LEVELS);
                 }
@@ -602,12 +993,12 @@ int main(int argc, char* argv[])
         if (quit) break;
 
         UpdateEnemies();
-        sys_sleep(4);
+        sys_sleep(3); // ~30 FPS
     }
 
-    if (g_PlayerHealth <= 0)
+    if (g_Win)
     {
-        printf("\n*** YOU DIED! Doomguy succumbed to the demonic horde. Final Score: %d ***\n", g_Score);
+        gui_destroy_window(g_Win);
     }
 
     return 0;

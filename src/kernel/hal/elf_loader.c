@@ -123,7 +123,9 @@ bool ELF_Load(const char* filepath, ELF_ProgramImage* outImage)
     // 2. Validate ELF Header
     if (memcmp(header.magic, ELF_MAGIC, 4) != 0)
     {
-        log_err(MODULE, "Invalid ELF magic in '%s'", filepath);
+        log_err(MODULE, "Invalid ELF magic in '%s': 0x%02x 0x%02x 0x%02x 0x%02x (expected 0x7f 'E' 'L' 'F')",
+                filepath, (uint8_t)header.magic[0], (uint8_t)header.magic[1],
+                (uint8_t)header.magic[2], (uint8_t)header.magic[3]);
         vfs_close(fd);
         return false;
     }

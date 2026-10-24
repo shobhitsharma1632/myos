@@ -1893,6 +1893,15 @@ void start(BootParams* bootParams)
     // Initialize Sound Blaster 16 Audio Subsystem & ISA DMA
     Audio_Initialize();
 
+    // Initialize Bochs BGA 1024x768 @ 32bpp Graphical Desktop & Window Compositor
+    if (BGA_IsAvailable())
+    {
+        if (GUI_Initialize(1024, 768))
+        {
+            GUI_Start();
+        }
+    }
+
     printf("\n=======================================================\n");
     printf("  myOS Phase 22: Multi-Core SMP Parallel Scheduler\n");
     printf("  Per-CPU Runqueues, Work-Stealing & Reschedule IPIs Active!\n");
