@@ -35,10 +35,19 @@ run-gui:
 		echo "================================================================="; \
 		echo "  Headless environment detected (\$$DISPLAY is not set)."; \
 		echo "  Starting QEMU with VNC server on port 5900 (display :0)..."; \
-		echo "  WebSocket VNC enabled on port 6080."; \
-		echo "  Connect your VNC client to localhost:5900 to interact with GUI!"; \
-		echo "================================================================="; \
-		qemu-system-i386 -drive file=$(BUILD_DIR)/main_floppy.img,format=raw,if=ide -smp 4 -audiodev id=snd0,driver=none -device sb16,audiodev=snd0 -netdev user,id=net0 -device e1000,netdev=net0 -vnc 0.0.0.0:0,websocket=6080 -debugcon stdio; \
+		if command -v websockify >/dev/null 2>&1 && [ -d /usr/share/novnc ]; then \
+			echo "  HTML5 Web GUI: http://localhost:6080/vnc.html?autoconnect=true"; \
+			echo "  VNC Client:    localhost:5900"; \
+			echo "================================================================="; \
+			websockify --web=/usr/share/novnc 6080 localhost:5900 >/dev/null 2>&1 & WEBSOCK_PID=$$!; \
+			trap "kill $$WEBSOCK_PID 2>/dev/null || true" EXIT INT TERM; \
+			qemu-system-i386 -drive file=$(BUILD_DIR)/main_floppy.img,format=raw,if=ide -smp 4 -audiodev id=snd0,driver=none -device sb16,audiodev=snd0 -netdev user,id=net0 -device e1000,netdev=net0 -vnc 0.0.0.0:0 -debugcon stdio; \
+		else \
+			echo "  WebSocket VNC enabled on port 6080."; \
+			echo "  Connect your VNC client to localhost:5900 to interact with GUI!"; \
+			echo "================================================================="; \
+			qemu-system-i386 -drive file=$(BUILD_DIR)/main_floppy.img,format=raw,if=ide -smp 4 -audiodev id=snd0,driver=none -device sb16,audiodev=snd0 -netdev user,id=net0 -device e1000,netdev=net0 -vnc 0.0.0.0:0,websocket=6080 -debugcon stdio; \
+		fi; \
 	fi
 
 clean:

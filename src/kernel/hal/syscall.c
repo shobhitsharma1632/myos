@@ -9,6 +9,7 @@
 #include <hal/gui.h>
 #include <hal/smp.h>
 #include <hal/audio.h>
+#include <arch/i686/keyboard.h>
 #include <net/net.h>
 #include <net/icmp.h>
 #include <net/udp.h>
@@ -123,7 +124,12 @@ void Syscall_Handler(Registers* regs)
                 regs->eax = 0;
                 break;
             }
-            regs->eax = 0;
+            uint32_t count = 0;
+            while (count < max_len && i686_Keyboard_HasChar())
+            {
+                buf[count++] = i686_Keyboard_GetChar();
+            }
+            regs->eax = count;
             break;
         }
 

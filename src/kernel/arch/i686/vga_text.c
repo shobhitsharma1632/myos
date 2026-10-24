@@ -74,8 +74,96 @@ void VGA_scrollback(int lines)
     g_ScreenY -= lines;
 }
 
+typedef enum {
+    ANSI_STATE_NORMAL,
+    ANSI_STATE_ESC,
+    ANSI_STATE_CSI
+} AnsiState;
+
+static AnsiState g_AnsiState = ANSI_STATE_NORMAL;
+static char g_AnsiBuf[32];
+static int g_AnsiLen = 0;
+
 void VGA_putc(char c)
 {
+    if (g_AnsiState == ANSI_STATE_NORMAL)
+    {
+        if (c == '\033')
+        {
+            g_AnsiState = ANSI_STATE_ESC;
+            return;
+        }
+    }
+    else if (g_AnsiState == ANSI_STATE_ESC)
+    {
+        if (c == '[')
+        {
+            g_AnsiState = ANSI_STATE_CSI;
+            g_AnsiLen = 0;
+            g_AnsiBuf[0] = '\0';
+            return;
+        }
+        else
+        {
+            g_AnsiState = ANSI_STATE_NORMAL;
+        }
+    }
+    else if (g_AnsiState == ANSI_STATE_CSI)
+    {
+        if ((c >= '0' && c <= '9') || c == ';')
+        {
+            if (g_AnsiLen < (int)sizeof(g_AnsiBuf) - 1)
+            {
+                g_AnsiBuf[g_AnsiLen++] = c;
+                g_AnsiBuf[g_AnsiLen] = '\0';
+            }
+            return;
+        }
+        else if (c == 'H' || c == 'f')
+        {
+            // Cursor position
+            if (g_AnsiLen == 0)
+            {
+                g_ScreenX = 0;
+                g_ScreenY = 0;
+            }
+            else
+            {
+                int row = 0, col = 0;
+                int i = 0;
+                while (g_AnsiBuf[i] >= '0' && g_AnsiBuf[i] <= '9') {
+                    row = row * 10 + (g_AnsiBuf[i] - '0');
+                    i++;
+                }
+                if (g_AnsiBuf[i] == ';') {
+                    i++;
+                    while (g_AnsiBuf[i] >= '0' && g_AnsiBuf[i] <= '9') {
+                        col = col * 10 + (g_AnsiBuf[i] - '0');
+                        i++;
+                    }
+                }
+                g_ScreenY = (row > 0 && row <= (int)SCREEN_HEIGHT) ? (row - 1) : 0;
+                g_ScreenX = (col > 0 && col <= (int)SCREEN_WIDTH) ? (col - 1) : 0;
+            }
+            VGA_setcursor(g_ScreenX, g_ScreenY);
+            g_AnsiState = ANSI_STATE_NORMAL;
+            return;
+        }
+        else if (c == 'J')
+        {
+            // \033[2J = clear screen
+            VGA_clrscr();
+            g_AnsiState = ANSI_STATE_NORMAL;
+            return;
+        }
+        else
+        {
+            // Ignore/consume any other control code (e.g. 'm')
+            g_AnsiState = ANSI_STATE_NORMAL;
+            return;
+        }
+    }
+
     switch (c)
     {
         case '\n':

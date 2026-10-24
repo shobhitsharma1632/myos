@@ -290,6 +290,10 @@ static int Shell_ExecuteSingle(char* cmdLine, bool wait_for_exit)
         shell_print("  smp                 - Display SMP multi-core CPU topology and APIC status\n");
         shell_print("  sound               - Display Sound Blaster 16 & Audio Subsystem status\n");
         shell_print("  stats               - Dump live MLFQ scheduling metrics\n");
+        shell_print("  doom                - Play 3D Raycasting DOOM with Sound Blaster 16 audio\n");
+        shell_print("  tetris              - Play classic Tetris\n");
+        shell_print("  snake               - Play classic Snake\n");
+        shell_print("  test-all            - Run full automated system verification suite\n");
         shell_print("  gui                 - Launch high-resolution 1024x768 GUI desktop\n");
         shell_print("  echo <text...>      - Print text arguments to screen\n");
         shell_print("  reboot              - Reboot the computer\n\n");
@@ -659,6 +663,27 @@ static int Shell_ExecuteSingle(char* cmdLine, bool wait_for_exit)
     {
         Audio_DumpStatus();
     }
+    else if (str_cmp(cmd, "doom") == 0)
+    {
+        char* doom_argv[] = { "/bin/doom.elf", NULL };
+        child_pid = Shell_ExecuteELF("/bin/doom.elf", 1, doom_argv, true);
+    }
+    else if (str_cmp(cmd, "tetris") == 0)
+    {
+        char* tetris_argv[] = { "/bin/tetris.elf", NULL };
+        child_pid = Shell_ExecuteELF("/bin/tetris.elf", 1, tetris_argv, true);
+    }
+    else if (str_cmp(cmd, "snake") == 0)
+    {
+        char* snake_argv[] = { "/bin/snake.elf", NULL };
+        child_pid = Shell_ExecuteELF("/bin/snake.elf", 1, snake_argv, true);
+    }
+    else if (str_cmp(cmd, "test-all") == 0 || str_cmp(cmd, "test") == 0)
+    {
+        extern void Kernel_RunVerificationSuite(void);
+        shell_print("Launching myOS automated verification suite across all 22 phases...\n");
+        Kernel_RunVerificationSuite();
+    }
     else if (str_cmp(cmd, "exec") == 0)
     {
         if (argc < 2)
@@ -835,6 +860,10 @@ void Shell_Task(void)
     shell_print("  myOS Interactive Command Shell (v1.0)\n");
     shell_print("  Type 'help' for available commands.\n");
     shell_print("=======================================================\n\n");
+
+    // Automatically boot directly into DOOM for immediate gameplay!
+    char* doom_argv[] = { "/bin/doom.elf", NULL };
+    Shell_ExecuteELF("/bin/doom.elf", 1, doom_argv, true);
 
     char lineBuffer[MAX_LINE_LEN];
 

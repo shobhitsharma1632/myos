@@ -531,9 +531,14 @@ int main(int argc, char* argv[])
         RenderFrame();
 
         char c = 0;
-        if (sys_read(&c, 1) > 0 && c != 0)
+        bool quit = false;
+        while (sys_read(&c, 1) > 0 && c != 0)
         {
-            if (c == 'q' || c == 'Q') break;
+            if (c == 'q' || c == 'Q')
+            {
+                quit = true;
+                break;
+            }
             else if (c == 'w' || c == 'W')
             {
                 float nx = g_PlayerX + g_PlayerDirX * 0.4f;
@@ -594,8 +599,10 @@ int main(int argc, char* argv[])
             }
         }
 
+        if (quit) break;
+
         UpdateEnemies();
-        sys_sleep(80);
+        sys_sleep(4);
     }
 
     if (g_PlayerHealth <= 0)

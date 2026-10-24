@@ -1717,6 +1717,11 @@ static void Task_ShellDemo(void)
     Task_Exit();
 }
 
+void Kernel_RunVerificationSuite(void)
+{
+    Task_Create("Phase22_Test", Task_Phase22_SMPParallelVerification);
+}
+
 void start(BootParams* bootParams)
 {
     __asm__ volatile("cli");
@@ -1893,14 +1898,10 @@ void start(BootParams* bootParams)
     printf("  Per-CPU Runqueues, Work-Stealing & Reschedule IPIs Active!\n");
     printf("=======================================================\n\n");
 
-    // Spawn Phase 22 Multi-Core SMP Parallel Scheduler Automated Verification Pipeline
-    // (Sequentially cascades: Phase 22 -> Phase 11 -> Phase 12 -> Phase 13 -> Phase 14 -> Phase 15 -> Phase 16 -> Phase 17 -> Phase 18 -> Phase 20 -> Phase 21 -> ShellDemo)
-    Task_Create("Phase22_Test", Task_Phase22_SMPParallelVerification);
-
     // Spawn Phase 9 Interactive Command Shell Task
     Shell_Initialize();
 
-    log_info("Main", "Kernel initialization complete. Shell, User Mode & Storage active in MLFQ Queue 0.");
+    log_info("Main", "Kernel initialization complete. Multi-Core SMP & Shell ready.");
 
     while (1)
     {
