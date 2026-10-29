@@ -192,6 +192,28 @@ void GFX_SwapBuffers(void)
     memcpy(front, g_Backbuffer, g_Width * g_Height * sizeof(uint32_t));
 }
 
+void GFX_SwapBuffersDirty(int32_t x, int32_t y, int32_t w, int32_t h)
+{
+    void* front = BGA_GetFramebuffer();
+    if (!front || !g_Backbuffer) return;
+
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > (int32_t)g_Width) w = (int32_t)g_Width - x;
+    if (y + h > (int32_t)g_Height) h = (int32_t)g_Height - y;
+    if (w <= 0 || h <= 0) return;
+
+    uint32_t* dst_fb = (uint32_t*)front;
+    size_t lineBytes = (size_t)w * sizeof(uint32_t);
+
+    for (int32_t r = y; r < y + h; r++)
+    {
+        uint32_t* dst = dst_fb + (r * g_Width + x);
+        const uint32_t* src = g_Backbuffer + (r * g_Width + x);
+        memcpy(dst, src, lineBytes);
+    }
+}
+
 uint32_t* GFX_GetBackbuffer(void)
 {
     return g_Backbuffer;

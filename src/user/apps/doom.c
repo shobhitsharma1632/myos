@@ -311,6 +311,71 @@ static uint32_t SampleWallTexture(int wallType, int tx, int ty)
     return 0x00475569;
 }
 
+static uint32_t s_WallTextures[10][16][16];
+static bool     s_WallTexturesInit = false;
+
+static void InitWallTextures(void)
+{
+    if (s_WallTexturesInit) return;
+    for (int t = 0; t < 10; t++)
+    {
+        for (int y = 0; y < 16; y++)
+        {
+            for (int x = 0; x < 16; x++)
+            {
+                s_WallTextures[t][y][x] = SampleWallTexture(t, x, y);
+            }
+        }
+    }
+    s_WallTexturesInit = true;
+}
+
+static uint32_t s_CeilingLUT[256];
+static uint32_t s_FloorLUT[2][256];
+static bool     s_LutInit = false;
+
+static void InitLUTs(int view_h)
+{
+    if (s_LutInit) return;
+    int half_h = view_h / 2;
+    if (half_h > 255) half_h = 255;
+    for (int y = 0; y < half_h; y++)
+    {
+        int r = 11 + (y * 19) / half_h;
+        int g = 15 + (y * 26) / half_h;
+        int b = 25 + (y * 34) / half_h;
+        s_CeilingLUT[y] = (r << 16) | (g << 8) | b;
+
+        int dist = y;
+        int fr = 24 + (dist * 20) / half_h;
+        int fg = 24 + (dist * 20) / half_h;
+        int fb = 28 + (dist * 22) / half_h;
+        s_FloorLUT[0][dist] = (fr << 16) | (fg << 8) | fb;
+        s_FloorLUT[1][dist] = (((fr + 4) << 16) | ((fg + 4) << 8) | (fb + 4));
+    }
+    s_LutInit = true;
+}
+
+static int      g_FPS = 0;
+static uint32_t g_FrameCount = 0;
+static uint32_t g_LastFPSTick = 0;
+
+static void UpdateFPS(void)
+{
+    uint32_t now = sys_getticks();
+    g_FrameCount++;
+    if (now - g_LastFPSTick >= 50)
+    {
+        uint32_t diff = now - g_LastFPSTick;
+        if (diff > 0)
+        {
+            g_FPS = (g_FrameCount * 100) / diff;
+        }
+        g_FrameCount = 0;
+        g_LastFPSTick = now;
+    }
+}
+
 static inline uint32_t ApplyLighting(uint32_t color, float shade)
 {
     if (shade > 1.0f) shade = 1.0f;
@@ -460,9 +525,14 @@ static void RenderHUD(gui_window_t* win, int client_w, int client_h, int view_h)
     snprintf(score_str, sizeof(score_str), "SCORE: %d", g_Score);
     gui_draw_text(win, client_w - 110, view_h + 4, score_str, 0x0010B981, GUI_COLOR_TRANSPARENT);
 
+    // Real-Time High-FPS Counter
+    char fps_str[16];
+    snprintf(fps_str, sizeof(fps_str), "%d FPS", g_FPS);
+    gui_draw_text(win, client_w / 2 - 25, view_h + 2, fps_str, 0x0038BDF8, GUI_COLOR_TRANSPARENT);
+
     // Doomguy Animated Face in Center of HUD
     int faceX = client_w / 2 - 16;
-    int faceY = view_h + 10;
+    int faceY = view_h + 12;
     gui_fill_rect(win, faceX - 2, faceY - 2, 36, 36, 0x001E293B);
     gui_draw_rect(win, faceX - 2, faceY - 2, 36, 36, 0x0064748B);
 
@@ -531,51 +601,27 @@ static void RenderHUD(gui_window_t* win, int client_w, int client_h, int view_h)
 }
 
 // -------------------------------------------------------------
-// Graphical 3D Raycasting Renderer
+// Graphical 3D Raycasting Renderer (1-Pass Zero-Overdraw Engine)
 // -------------------------------------------------------------
 
 static void RenderGUI(void)
 {
     if (!g_Win || !g_Win->buffer) return;
 
+    InitWallTextures();
+
     int client_w = g_Win->client_w;
     int client_h = g_Win->client_h;
     int view_h   = client_h - GUI_HUD_H;
+    int half_h   = view_h / 2;
     uint32_t* buf = g_Win->buffer;
     Level* lvl = &g_Levels[g_CurrentLevelIdx];
 
-    // 1. Shaded Ceiling & Floor Gradients
-    for (int y = 0; y < view_h / 2; y++)
-    {
-        // Ceiling: dark slate navy gradient
-        int r = 11 + (y * 19) / (view_h / 2);
-        int g = 15 + (y * 26) / (view_h / 2);
-        int b = 25 + (y * 34) / (view_h / 2);
-        uint32_t col = (r << 16) | (g << 8) | b;
-        uint32_t* row = &buf[y * client_w];
-        for (int x = 0; x < client_w; x++) row[x] = col;
-    }
-    for (int y = view_h / 2; y < view_h; y++)
-    {
-        // Floor: textured dungeon stone fading to dark
-        int dist = y - view_h / 2;
-        int r = 24 + (dist * 20) / (view_h / 2);
-        int g = 24 + (dist * 20) / (view_h / 2);
-        int b = 28 + (dist * 22) / (view_h / 2);
-        uint32_t* row = &buf[y * client_w];
-        for (int x = 0; x < client_w; x++)
-        {
-            bool tile = ((x / 32) + (y / 16)) % 2 == 0;
-            int tr = tile ? (r + 4) : r;
-            int tg = tile ? (g + 4) : g;
-            int tb = tile ? (b + 4) : b;
-            row[x] = (tr << 16) | (tg << 8) | tb;
-        }
-    }
+    InitLUTs(view_h);
 
-    // 2. Cast 1 Ray per Screen Column with 32-Bit Textures
     float z_buffer[client_w];
 
+    // 1. Cast 1 Ray per Screen Column: 1-Pass Ceiling -> Textured Wall -> Floor
     for (int x = 0; x < client_w; x++)
     {
         float cameraX = 2.0f * (float)x / (float)client_w - 1.0f;
@@ -626,33 +672,59 @@ static void RenderGUI(void)
         z_buffer[x] = perpWallDist;
 
         int lineHeight = (int)(view_h / perpWallDist);
-        int drawStart = -lineHeight / 2 + view_h / 2;
-        int drawEnd   =  lineHeight / 2 + view_h / 2;
+        int drawStart = -lineHeight / 2 + half_h;
+        int drawEnd   =  lineHeight / 2 + half_h;
 
         int start_y = (drawStart < 0) ? 0 : drawStart;
         int end_y   = (drawEnd >= view_h) ? (view_h - 1) : drawEnd;
 
+        // Ceiling (Lookup Table)
+        for (int y = 0; y < start_y; y++)
+        {
+            int lut_y = (y < half_h) ? y : (half_h - 1);
+            buf[y * client_w + x] = s_CeilingLUT[lut_y];
+        }
+
+        // Textured Wall (Pre-baked L1 Texture & Fast Fixed-Point Shading)
+        if (hit > 9) hit = 1;
         float wallX = (side == 0) ? (g_PlayerY + perpWallDist * rayDirY) : (g_PlayerX + perpWallDist * rayDirX);
         wallX -= (float)((int)wallX);
         if (wallX < 0.0f) wallX += 1.0f;
         int texX = (int)(wallX * 16.0f) & 15;
 
-        float shade = 1.0f / (1.0f + 0.12f * perpWallDist * perpWallDist);
-        if (side == 1) shade *= 0.75f; // Side shadow
+        float shadeF = 1.0f / (1.0f + 0.12f * perpWallDist * perpWallDist);
+        if (side == 1) shadeF *= 0.75f;
+        if (shadeF > 1.0f) shadeF = 1.0f;
+        if (shadeF < 0.05f) shadeF = 0.05f;
+        uint32_t ishade = (uint32_t)(shadeF * 256.0f);
+
+        uint32_t step_fp = (lineHeight > 0) ? ((16 << 16) / lineHeight) : 0;
+        uint32_t pos_fp = (start_y - (-lineHeight / 2 + half_h)) * step_fp;
 
         for (int y = start_y; y <= end_y; y++)
         {
-            int d = y * 256 - view_h * 128 + lineHeight * 128;
-            int texY = ((d * 16) / lineHeight) / 256;
-            if (texY < 0) texY = 0;
-            if (texY > 15) texY = 15;
+            int texY = (pos_fp >> 16) & 15;
+            pos_fp += step_fp;
 
-            uint32_t col = SampleWallTexture(hit, texX, texY);
-            buf[y * client_w + x] = ApplyLighting(col, shade);
+            uint32_t col = s_WallTextures[hit][texY][texX];
+            uint32_t rb = (((col & 0x00FF00FF) * ishade) >> 8) & 0x00FF00FF;
+            uint32_t g  = (((col & 0x0000FF00) * ishade) >> 8) & 0x0000FF00;
+            buf[y * client_w + x] = rb | g;
+        }
+
+        // Floor (Checkerboard Lookup Table)
+        int tileX = (x / 32);
+        for (int y = end_y + 1; y < view_h; y++)
+        {
+            int dist = y - half_h;
+            if (dist < 0) dist = 0;
+            if (dist >= half_h) dist = half_h - 1;
+            int tileIdx = (tileX + (y / 16)) & 1;
+            buf[y * client_w + x] = s_FloorLUT[tileIdx][dist];
         }
     }
 
-    // 3. Project 2.5D Monster Sprites (Depth-tested against z_buffer)
+    // 2. Project 2.5D Monster Sprites (Depth-tested against z_buffer)
     for (int i = 0; i < lvl->num_enemies; i++)
     {
         Enemy* e = &lvl->enemies[i];
@@ -673,8 +745,8 @@ static void RenderGUI(void)
 
             int drawStartX = -spriteSize / 2 + spriteScreenX;
             int drawEndX   =  spriteSize / 2 + spriteScreenX;
-            int drawStartY = -spriteSize / 2 + view_h / 2;
-            int drawEndY   =  spriteSize / 2 + view_h / 2;
+            int drawStartY = -spriteSize / 2 + half_h;
+            int drawEndY   =  spriteSize / 2 + half_h;
 
             if (drawStartX < 0) drawStartX = 0;
             if (drawEndX >= client_w) drawEndX = client_w - 1;
@@ -685,6 +757,9 @@ static void RenderGUI(void)
                                                ((e->type == ENEMY_IMP) ? s_ImpSprite : s_ZombieSprite);
 
             float spriteShade = 1.0f / (1.0f + 0.12f * transformY * transformY);
+            if (spriteShade > 1.0f) spriteShade = 1.0f;
+            if (spriteShade < 0.05f) spriteShade = 0.05f;
+            uint32_t ishade = (uint32_t)(spriteShade * 256.0f);
 
             for (int stripe = drawStartX; stripe <= drawEndX; stripe++)
             {
@@ -696,7 +771,7 @@ static void RenderGUI(void)
 
                     for (int y = drawStartY; y <= drawEndY; y++)
                     {
-                        int d = y - (-spriteSize / 2 + view_h / 2);
+                        int d = y - (-spriteSize / 2 + half_h);
                         int texY = (d * 16) / spriteSize;
                         if (texY < 0) texY = 0;
                         if (texY > 15) texY = 15;
@@ -710,7 +785,9 @@ static void RenderGUI(void)
                             }
                             else
                             {
-                                color = ApplyLighting(color, spriteShade);
+                                uint32_t rb = (((color & 0x00FF00FF) * ishade) >> 8) & 0x00FF00FF;
+                                uint32_t g  = (((color & 0x0000FF00) * ishade) >> 8) & 0x0000FF00;
+                                color = rb | g;
                             }
                             buf[y * client_w + stripe] = color;
                         }
@@ -720,13 +797,13 @@ static void RenderGUI(void)
         }
     }
 
-    // 4. Render First-Person Weapon Sprite
+    // 3. Render First-Person Weapon Sprite
     RenderWeapon(g_Win, client_w, view_h);
 
-    // 5. Render Graphical Doomguy HUD Status Bar
+    // 4. Render Graphical Doomguy HUD Status Bar
     RenderHUD(g_Win, client_w, client_h, view_h);
 
-    // 6. Blit Window Backbuffer to GUI Desktop
+    // 5. Blit Window Backbuffer to GUI Desktop
     gui_present(g_Win);
 }
 
@@ -875,8 +952,12 @@ int main(int argc, char* argv[])
     g_Win = gui_create_window("DOOM - Phobos Mission (3D Raycaster)", 240, 80, 540, 440);
 
     // Interactive Game Loop
+    uint32_t last_logic_tick = sys_getticks();
+
     while (g_PlayerHealth > 0)
     {
+        UpdateFPS();
+
         // 1. Render Current Frame (GUI or Console fallback)
         if (g_Win)
         {
@@ -992,8 +1073,15 @@ int main(int argc, char* argv[])
 
         if (quit) break;
 
-        UpdateEnemies();
-        sys_sleep(3); // ~30 FPS
+        // Fixed-rate game logic update (33 Hz)
+        uint32_t now = sys_getticks();
+        if (now - last_logic_tick >= 3)
+        {
+            UpdateEnemies();
+            last_logic_tick = now;
+        }
+
+        sys_yield();
     }
 
     if (g_Win)

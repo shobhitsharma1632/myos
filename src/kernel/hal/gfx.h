@@ -29,6 +29,7 @@ typedef struct {
 
 bool GFX_Initialize(uint32_t width, uint32_t height);
 void GFX_SwapBuffers(void);
+void GFX_SwapBuffersDirty(int32_t x, int32_t y, int32_t w, int32_t h);
 uint32_t* GFX_GetBackbuffer(void);
 uint32_t GFX_GetWidth(void);
 uint32_t GFX_GetHeight(void);
