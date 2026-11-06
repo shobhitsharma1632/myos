@@ -7,6 +7,7 @@
 #include <arch/i686/vga_text.h>
 #include <arch/i686/keyboard.h>
 #include <hal/syscall.h>
+#include <hal/power.h>
 
 void HAL_Initialize()
 {
@@ -18,4 +19,5 @@ void HAL_Initialize()
     i686_IRQ_Initialize();
     Syscall_Initialize();
     i686_Keyboard_Initialize();
+    Power_Initialize();
 }

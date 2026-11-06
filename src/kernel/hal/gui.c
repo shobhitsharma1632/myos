@@ -10,6 +10,7 @@
 #include <hal/heap.h>
 #include <hal/vfs.h>
 #include <hal/fat.h>
+#include <hal/power.h>
 #include <arch/i686/ata.h>
 #include <stdio.h>
 #include <string.h>
@@ -62,13 +63,18 @@ typedef struct {
 
 static const AppLauncherItem s_AppCatalog[] = {
     { "DOOM (3D Raycaster)", "GAME", "3D retro raycasting action game",       "/bin/doom.elf",    NULL,                0x00DC2626 },
-    { "Tetris",              "GAME", "Classic falling tetromino puzzle",      "/bin/tetris.elf",  NULL,                0x002563EB },
-    { "Snake",               "GAME", "Retro arcade snake game",               "/bin/snake.elf",   NULL,                0x00059669 },
-    { "Terminal / Shell",    "TERM", "myOS interactive command shell",        "/bin/sh.elf",      NULL,                0x00D97706 },
+    { "Tetris (Arcade)",     "GAME", "Classic falling tetromino puzzle",      "/bin/tetris.elf",  NULL,                0x002563EB },
+    { "Snake (Arcade)",      "GAME", "Retro arcade snake game",               "/bin/snake.elf",   NULL,                0x00059669 },
+    { "Terminal (Shell)",    "TERM", "Interactive myOS command shell & TTY",  NULL,               "Terminal (Shell)",  0x00D97706 },
     { "File Explorer",       "FILE", "Browse VFS, disk sectors & directories",NULL,               "File Explorer (/)", 0x000891B2 },
-    { "Terminal Log",        "TERM", "System console log & kernel output",    NULL,               "Terminal Log",      0x00D97706 },
+    { "Shut Down",           "PWR",  "Power off computer hardware safely",    NULL,               "__SHUTDOWN__",      0x00DC2626 },
+    { "Restart (Reboot)",    "PWR",  "Reboot operating system & reload",      NULL,               "__REBOOT__",        0x00EA580C },
+    { "Sleep (Standby)",     "PWR",  "Low-power suspended idle mode",         NULL,               "__SLEEP__",         0x002563EB },
+    { "Hibernate",           "PWR",  "Preserve memory session to disk",       NULL,               "__HIBERNATE__",     0x007C3AED },
+    { "Power Management",    "PWR",  "Power options & system controls",       NULL,               "Power Management",  0x00991B1B },
     { "Notepad",             "APPS", "Graphical text editor & scratchpad",    "/bin/notepad.elf", NULL,                0x007C3AED },
     { "Paint",               "APPS", "Graphical canvas drawing application",  "/bin/paint.elf",   NULL,                0x00DB2777 },
+    { "Terminal Log",        "TERM", "System console log & kernel output",    NULL,               "Terminal Log",      0x00D97706 },
     { "System Monitor",      "SYS",  "Real-time CPU & memory resource stats", "/bin/sysmon.elf",  NULL,                0x000D9488 },
     { "MLFQ Scheduler",      "SYS",  "Multi-core 3-level queue visualizer",   NULL,               "MLFQ Scheduler",    0x00059669 },
     { "System Memory",       "SYS",  "Physical & virtual memory inspector",   NULL,               "System Memory",     0x004F46E5 },
@@ -137,8 +143,11 @@ static void MarkRegionDirty(int32_t x, int32_t y, int32_t w, int32_t h)
 static void Draw_SchedulerWindow(GUI_Window* win);
 static void Draw_MemoryWindow(GUI_Window* win);
 static void Draw_ConsoleWindow(GUI_Window* win);
+static void Draw_TerminalWindow(GUI_Window* win);
+static void Draw_PowerWindow(GUI_Window* win);
 static void Draw_AboutWindow(GUI_Window* win);
 static void Draw_FileExplorerWindow(GUI_Window* win);
+static void GUI_HandleTerminalKey(const KeyboardEvent* kev);
 
 GUI_Window* GUI_CreateWindow(const char* title, int32_t x, int32_t y, int32_t width, int32_t height, GUI_DrawCallback onDraw)
 {
@@ -475,6 +484,35 @@ static void GUI_LaunchCatalogItem(int catalogIdx)
 
     if (item->win_title)
     {
+        if (strcmp(item->win_title, "__SHUTDOWN__") == 0)
+        {
+            g_StartMenuOpen = false;
+            Power_Shutdown();
+            return;
+        }
+        else if (strcmp(item->win_title, "__REBOOT__") == 0)
+        {
+            g_StartMenuOpen = false;
+            Power_Reboot();
+            return;
+        }
+        else if (strcmp(item->win_title, "__SLEEP__") == 0)
+        {
+            g_StartMenuOpen = false;
+            Power_Sleep();
+            g_DesktopNeedsRedraw = true;
+            MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+            return;
+        }
+        else if (strcmp(item->win_title, "__HIBERNATE__") == 0)
+        {
+            g_StartMenuOpen = false;
+            Power_Hibernate();
+            g_DesktopNeedsRedraw = true;
+            MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+            return;
+        }
+
         GUI_Window* w = GUI_FindWindowByTitle(item->win_title);
         if (w)
         {
@@ -485,6 +523,10 @@ static void GUI_LaunchCatalogItem(int catalogIdx)
         {
             if (strcmp(item->win_title, "File Explorer (/)") == 0)
                 GUI_CreateWindow("File Explorer (/)", 240, 160, 520, 300, Draw_FileExplorerWindow);
+            else if (strcmp(item->win_title, "Terminal (Shell)") == 0)
+                GUI_CreateWindow("Terminal (Shell)", 50, 270, 540, 300, Draw_TerminalWindow);
+            else if (strcmp(item->win_title, "Power Management") == 0)
+                GUI_CreateWindow("Power Management", 320, 220, 380, 270, Draw_PowerWindow);
             else if (strcmp(item->win_title, "Terminal Log") == 0)
                 GUI_CreateWindow("Terminal Log", 30, 280, 460, 250, Draw_ConsoleWindow);
             else if (strcmp(item->win_title, "MLFQ Scheduler") == 0)
@@ -511,7 +553,7 @@ static void GUI_DrawStartMenu(void)
     int32_t barY = g_GuiHeight - TASKBAR_HEIGHT;
     int32_t menuX = 6;
     int32_t menuW = 390;
-    int32_t menuH = 370;
+    int32_t menuH = 405;
     int32_t menuY = barY - menuH - 4;
 
     // 1. Drop shadow
@@ -538,7 +580,7 @@ static void GUI_DrawStartMenu(void)
 
     if (g_AppSearchQuery[0] == '\0')
     {
-        GFX_DrawString(boxX + 28, boxY + 7, "Type to search (games, term, files)...", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+        GFX_DrawString(boxX + 28, boxY + 7, "Type to search (games, term, power)...", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
     }
     else
     {
@@ -565,7 +607,7 @@ static void GUI_DrawStartMenu(void)
     if (matchCount == 0)
     {
         GFX_DrawString(menuX + 20, menuY + 110, "No matching applications found.", GFX_COLOR_AMBER, GFX_COLOR_TRANSPARENT);
-        GFX_DrawString(menuX + 20, menuY + 130, "Try searching: doom, tetris, sh, file", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+        GFX_DrawString(menuX + 20, menuY + 130, "Try searching: doom, tetris, snake, term, shut", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
     }
     else
     {
@@ -574,18 +616,18 @@ static void GUI_DrawStartMenu(void)
         {
             int catIdx = matches[idx];
             const AppLauncherItem* item = &s_AppCatalog[catIdx];
-            int32_t rowY = menuY + 86 + (idx * 41);
+            int32_t rowY = menuY + 86 + (idx * 40);
 
             bool isSel = (idx == g_AppSearchSelected);
             if (isSel)
             {
-                GFX_FillRect(menuX + 8, rowY, menuW - 16, 38, 0x001E3A8A);
-                GFX_DrawRect(menuX + 8, rowY, menuW - 16, 38, 0x003B82F6);
+                GFX_FillRect(menuX + 8, rowY, menuW - 16, 37, 0x001E3A8A);
+                GFX_DrawRect(menuX + 8, rowY, menuW - 16, 37, 0x003B82F6);
             }
             else
             {
-                GFX_FillRect(menuX + 8, rowY, menuW - 16, 38, 0x00141E33);
-                GFX_DrawRect(menuX + 8, rowY, menuW - 16, 38, 0x001E293B);
+                GFX_FillRect(menuX + 8, rowY, menuW - 16, 37, 0x00141E33);
+                GFX_DrawRect(menuX + 8, rowY, menuW - 16, 37, 0x001E293B);
             }
 
             // Category badge
@@ -601,7 +643,32 @@ static void GUI_DrawStartMenu(void)
         }
     }
 
-    // 6. Footer instructions
+    // 6. Quick Power Controls Toolbar
+    int32_t pwrY = menuY + menuH - 56;
+    GFX_FillRect(menuX + 2, pwrY, menuW - 4, 30, 0x000F172A);
+    GFX_DrawLine(menuX + 2, pwrY, menuX + menuW - 2, pwrY, 0x00334155);
+
+    // [⏻ Shut]
+    GFX_FillRect(menuX + 10, pwrY + 4, 84, 22, 0x007F1D1D);
+    GFX_DrawRect(menuX + 10, pwrY + 4, 84, 22, 0x00EF4444);
+    GFX_DrawString(menuX + 16, pwrY + 9, "[⏻] Shut", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+
+    // [↻ Restart]
+    GFX_FillRect(menuX + 102, pwrY + 4, 86, 22, 0x0078350F);
+    GFX_DrawRect(menuX + 102, pwrY + 4, 86, 22, 0x00F59E0B);
+    GFX_DrawString(menuX + 108, pwrY + 9, "[↻] Reboot", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+
+    // [☾ Sleep]
+    GFX_FillRect(menuX + 196, pwrY + 4, 84, 22, 0x001E3A8A);
+    GFX_DrawRect(menuX + 196, pwrY + 4, 84, 22, 0x003B82F6);
+    GFX_DrawString(menuX + 204, pwrY + 9, "[☾] Sleep", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+
+    // [◰ Hib]
+    GFX_FillRect(menuX + 288, pwrY + 4, 90, 22, 0x00581C87);
+    GFX_DrawRect(menuX + 288, pwrY + 4, 90, 22, 0x00A855F7);
+    GFX_DrawString(menuX + 294, pwrY + 9, "[◰] Hibernate", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+
+    // 7. Footer instructions
     int32_t footY = menuY + menuH - 24;
     GFX_FillRect(menuX + 2, footY, menuW - 4, 22, 0x00111827);
     GFX_DrawLine(menuX + 2, footY, menuX + menuW - 2, footY, 0x001E293B);
@@ -777,8 +844,14 @@ static void GUI_DrawDesktop(void)
     char trayStr[64];
     uint32_t freeMb = PMM_GetFreeMemory() / (1024 * 1024);
     uint32_t totalMb = PMM_GetTotalMemory() / (1024 * 1024);
-    snprintf(trayStr, sizeof(trayStr), "RAM: %u/%u MB | MLFQ 100Hz", freeMb, totalMb);
-    GFX_DrawString(g_GuiWidth - 250, barY + 12, trayStr, GFX_COLOR_CYAN, GFX_COLOR_TRANSPARENT);
+    snprintf(trayStr, sizeof(trayStr), "RAM: %u/%u MB", freeMb, totalMb);
+    GFX_DrawString(g_GuiWidth - 210, barY + 12, trayStr, GFX_COLOR_CYAN, GFX_COLOR_TRANSPARENT);
+
+    // Taskbar Power Button
+    int32_t pwrBtnX = g_GuiWidth - 82;
+    GFX_FillRect(pwrBtnX, barY + 4, 76, 24, 0x007F1D1D);
+    GFX_DrawRect(pwrBtnX, barY + 4, 76, 24, 0x00EF4444);
+    GFX_DrawString(pwrBtnX + 8, barY + 12, "[⏻ Power]", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
 }
 
 static void GUI_DrawWindow(GUI_Window* win)
@@ -947,6 +1020,317 @@ static void Draw_AboutWindow(GUI_Window* win)
     GFX_DrawString(x, y, "Click and drag any window title bar to move!", GFX_COLOR_AMBER, GFX_COLOR_TRANSPARENT);
 }
 
+// Window Content: Interactive Graphical Terminal Window
+#define TERM_MAX_LINES 18
+#define TERM_LINE_LEN  68
+static char s_TermLines[TERM_MAX_LINES][TERM_LINE_LEN];
+static uint32_t s_TermLineColors[TERM_MAX_LINES];
+static int s_TermLineCount = 0;
+static char s_TermInput[TERM_LINE_LEN] = "";
+static int s_TermInputLen = 0;
+static bool s_TermInit = false;
+static uint32_t s_TermBlinkTick = 0;
+
+static void Term_Append(const char* text, uint32_t color)
+{
+    if (s_TermLineCount >= TERM_MAX_LINES)
+    {
+        for (int i = 0; i < TERM_MAX_LINES - 1; i++)
+        {
+            memcpy(s_TermLines[i], s_TermLines[i + 1], TERM_LINE_LEN);
+            s_TermLineColors[i] = s_TermLineColors[i + 1];
+        }
+        s_TermLineCount = TERM_MAX_LINES - 1;
+    }
+    strncpy(s_TermLines[s_TermLineCount], text, TERM_LINE_LEN - 1);
+    s_TermLines[s_TermLineCount][TERM_LINE_LEN - 1] = '\0';
+    s_TermLineColors[s_TermLineCount] = color;
+    s_TermLineCount++;
+}
+
+static void Term_InitIfNeeded(void)
+{
+    if (!s_TermInit)
+    {
+        s_TermInit = true;
+        s_TermLineCount = 0;
+        s_TermInputLen = 0;
+        s_TermInput[0] = '\0';
+        Term_Append("myOS Graphical Shell & Terminal (v1.0)", GFX_COLOR_CYAN);
+        Term_Append("Type 'help' for command list, or type any application name.", GFX_COLOR_LIGHT_SLATE);
+        Term_Append("Available: help, ls, cat <f>, clear, echo, smp, mem, shutdown,", GFX_COLOR_LIGHT_SLATE);
+        Term_Append("           reboot, sleep, hibernate, doom, tetris, snake, notepad.", GFX_COLOR_LIGHT_SLATE);
+    }
+}
+
+static void Draw_TerminalWindow(GUI_Window* win)
+{
+    Term_InitIfNeeded();
+    int32_t clientX = win->x + 1;
+    int32_t clientY = win->y + TITLEBAR_HEIGHT + 1;
+    int32_t clientW = win->width - 2;
+    int32_t clientH = win->height - TITLEBAR_HEIGHT - 2;
+
+    GFX_FillRect(clientX, clientY, clientW, clientH, 0x000A0F1D);
+
+    int startY = clientY + 8;
+    for (int i = 0; i < s_TermLineCount; i++)
+    {
+        GFX_DrawString(clientX + 10, startY + (i * 14), s_TermLines[i], s_TermLineColors[i], GFX_COLOR_TRANSPARENT);
+    }
+
+    int promptY = startY + (s_TermLineCount * 14);
+    if (promptY < clientY + clientH - 16)
+    {
+        GFX_DrawString(clientX + 10, promptY, "myos:~$ ", GFX_COLOR_GREEN, GFX_COLOR_TRANSPARENT);
+        GFX_DrawString(clientX + 74, promptY, s_TermInput, GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+
+        s_TermBlinkTick++;
+        if ((s_TermBlinkTick / 20) % 2 == 0)
+        {
+            GFX_DrawString(clientX + 74 + (s_TermInputLen * 8), promptY, "_", GFX_COLOR_CYAN, GFX_COLOR_TRANSPARENT);
+        }
+    }
+}
+
+static void GUI_HandleTerminalKey(const KeyboardEvent* kev)
+{
+    Term_InitIfNeeded();
+
+    if (kev->ascii == '\n' || kev->ascii == '\r')
+    {
+        char promptBuf[TERM_LINE_LEN];
+        snprintf(promptBuf, sizeof(promptBuf), "myos:~$ %s", s_TermInput);
+        Term_Append(promptBuf, GFX_COLOR_WHITE);
+
+        char* cmd = s_TermInput;
+        while (*cmd == ' ' || *cmd == '\t') cmd++;
+
+        if (strcmp(cmd, "help") == 0)
+        {
+            Term_Append("System:  help, clear, ls, cat <f>, echo <t>, smp, mem", GFX_COLOR_CYAN);
+            Term_Append("Apps:    doom, tetris, snake, notepad, paint, calc, play", GFX_COLOR_AMBER);
+            Term_Append("Power:   shutdown, reboot, sleep, hibernate", GFX_COLOR_ROSE);
+        }
+        else if (strcmp(cmd, "clear") == 0 || strcmp(cmd, "cls") == 0)
+        {
+            s_TermLineCount = 0;
+        }
+        else if (strcmp(cmd, "ls") == 0 || strcmp(cmd, "dir") == 0)
+        {
+            Term_Append("/bin: doom.elf tetris.elf snake.elf notepad.elf paint.elf", GFX_COLOR_EMERALD);
+            Term_Append("      sh.elf calc.elf sysmon.elf smpinfo.elf play.elf", GFX_COLOR_EMERALD);
+            Term_Append("/:    readme.txt hello.txt sounds/", GFX_COLOR_LIGHT_SLATE);
+        }
+        else if (strncmp(cmd, "echo ", 5) == 0)
+        {
+            Term_Append(cmd + 5, GFX_COLOR_WHITE);
+        }
+        else if (strncmp(cmd, "cat ", 4) == 0)
+        {
+            char* fname = cmd + 4;
+            while (*fname == ' ') fname++;
+            int fd = vfs_open(fname, VFS_O_RDONLY);
+            if (fd >= 0)
+            {
+                char readBuf[64];
+                int n = vfs_read(fd, readBuf, sizeof(readBuf) - 1);
+                if (n > 0)
+                {
+                    readBuf[n] = '\0';
+                    Term_Append(readBuf, GFX_COLOR_WHITE);
+                }
+                vfs_close(fd);
+            }
+            else
+            {
+                char errB[64];
+                snprintf(errB, sizeof(errB), "cat: cannot open '%s'", fname);
+                Term_Append(errB, GFX_COLOR_ROSE);
+            }
+        }
+        else if (strcmp(cmd, "smp") == 0)
+        {
+            Term_Append("Symmetric Multiprocessing: 4 Online Cores active.", GFX_COLOR_CYAN);
+            Term_Append("Architecture: x86 (IA-32) SMP Parallel MLFQ Scheduler", GFX_COLOR_LIGHT_SLATE);
+        }
+        else if (strcmp(cmd, "mem") == 0)
+        {
+            char mB[64];
+            snprintf(mB, sizeof(mB), "Kernel Heap Free: %u KB / %u KB",
+                     (uint32_t)(KHeap_GetFreeMemory() / 1024),
+                     (uint32_t)(KHeap_GetTotalMemory() / 1024));
+            Term_Append(mB, GFX_COLOR_EMERALD);
+        }
+        else if (strcmp(cmd, "shutdown") == 0 || strcmp(cmd, "poweroff") == 0)
+        {
+            Term_Append("Shutting down myOS and powering off...", GFX_COLOR_ROSE);
+            Power_Shutdown();
+        }
+        else if (strcmp(cmd, "reboot") == 0 || strcmp(cmd, "restart") == 0)
+        {
+            Term_Append("Rebooting myOS...", GFX_COLOR_AMBER);
+            Power_Reboot();
+        }
+        else if (strcmp(cmd, "sleep") == 0)
+        {
+            Term_Append("Entering low-power sleep mode...", GFX_COLOR_CYAN);
+            Power_Sleep();
+        }
+        else if (strcmp(cmd, "hibernate") == 0)
+        {
+            Term_Append("Entering hibernation...", GFX_COLOR_CYAN);
+            Power_Hibernate();
+        }
+        else if (strcmp(cmd, "doom") == 0)
+        {
+            Term_Append("Launching DOOM 3D Raycaster...", GFX_COLOR_GREEN);
+            char* argv[] = { "/bin/doom.elf", NULL };
+            Task_CreateUserFromELF("doom", "/bin/doom.elf", 1, argv);
+        }
+        else if (strcmp(cmd, "tetris") == 0)
+        {
+            Term_Append("Launching Tetris GUI Arcade...", GFX_COLOR_GREEN);
+            char* argv[] = { "/bin/tetris.elf", NULL };
+            Task_CreateUserFromELF("tetris", "/bin/tetris.elf", 1, argv);
+        }
+        else if (strcmp(cmd, "snake") == 0)
+        {
+            Term_Append("Launching Snake GUI Arcade...", GFX_COLOR_GREEN);
+            char* argv[] = { "/bin/snake.elf", NULL };
+            Task_CreateUserFromELF("snake", "/bin/snake.elf", 1, argv);
+        }
+        else if (strcmp(cmd, "notepad") == 0)
+        {
+            Term_Append("Launching Notepad...", GFX_COLOR_GREEN);
+            char* argv[] = { "/bin/notepad.elf", NULL };
+            Task_CreateUserFromELF("notepad", "/bin/notepad.elf", 1, argv);
+        }
+        else if (strcmp(cmd, "paint") == 0)
+        {
+            Term_Append("Launching Paint Studio...", GFX_COLOR_GREEN);
+            char* argv[] = { "/bin/paint.elf", NULL };
+            Task_CreateUserFromELF("paint", "/bin/paint.elf", 1, argv);
+        }
+        else if (strcmp(cmd, "calc") == 0)
+        {
+            Term_Append("Launching Calculator...", GFX_COLOR_GREEN);
+            char* argv[] = { "/bin/calc.elf", NULL };
+            Task_CreateUserFromELF("calc", "/bin/calc.elf", 1, argv);
+        }
+        else if (strcmp(cmd, "play") == 0)
+        {
+            Term_Append("Playing Sound Blaster 16 Audio (/sounds/coin.wav)...", GFX_COLOR_GREEN);
+            char* argv[] = { "/bin/play.elf", "/sounds/coin.wav", NULL };
+            Task_CreateUserFromELF("play", "/bin/play.elf", 2, argv);
+        }
+        else if (strcmp(cmd, "sysmon") == 0)
+        {
+            Term_Append("Launching System Monitor...", GFX_COLOR_GREEN);
+            char* argv[] = { "/bin/sysmon.elf", NULL };
+            Task_CreateUserFromELF("sysmon", "/bin/sysmon.elf", 1, argv);
+        }
+        else if (strcmp(cmd, "smpinfo") == 0)
+        {
+            Term_Append("Launching SMP Topology...", GFX_COLOR_GREEN);
+            char* argv[] = { "/bin/smpinfo.elf", NULL };
+            Task_CreateUserFromELF("smpinfo", "/bin/smpinfo.elf", 1, argv);
+        }
+        else if (cmd[0] != '\0')
+        {
+            char elfPath[64];
+            snprintf(elfPath, sizeof(elfPath), "/bin/%s.elf", cmd);
+            VFS_Stat st;
+            if (vfs_stat(elfPath, &st) == 0)
+            {
+                char msg[64];
+                snprintf(msg, sizeof(msg), "Launching '%s'...", elfPath);
+                Term_Append(msg, GFX_COLOR_GREEN);
+                char* argv[] = { elfPath, NULL };
+                Task_CreateUserFromELF(cmd, elfPath, 1, argv);
+            }
+            else
+            {
+                char errB[64];
+                snprintf(errB, sizeof(errB), "Command '%s' not found. Type 'help'", cmd);
+                Term_Append(errB, GFX_COLOR_ROSE);
+            }
+        }
+
+        s_TermInputLen = 0;
+        s_TermInput[0] = '\0';
+        g_DesktopNeedsRedraw = true;
+        MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+    }
+    else if (kev->ascii == '\b')
+    {
+        if (s_TermInputLen > 0)
+        {
+            s_TermInput[--s_TermInputLen] = '\0';
+            g_DesktopNeedsRedraw = true;
+            MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+        }
+    }
+    else if (kev->ascii >= 32 && kev->ascii <= 126)
+    {
+        if (s_TermInputLen < TERM_LINE_LEN - 2)
+        {
+            s_TermInput[s_TermInputLen++] = kev->ascii;
+            s_TermInput[s_TermInputLen] = '\0';
+            g_DesktopNeedsRedraw = true;
+            MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+        }
+    }
+}
+
+// Window Content: Power Management Dialog
+static void Draw_PowerWindow(GUI_Window* win)
+{
+    int32_t x = win->x + 16;
+    int32_t y = win->y + TITLEBAR_HEIGHT + 14;
+
+    GFX_DrawString(x, y, "Select a power management option:", GFX_COLOR_CYAN, GFX_COLOR_TRANSPARENT);
+    y += 20;
+
+    int32_t btnW = win->width - 32;
+    int32_t btnH = 34;
+
+    // 1. Shut Down Button
+    GFX_FillRect(x, y, btnW, btnH, 0x007F1D1D);
+    GFX_DrawRect(x, y, btnW, btnH, 0x00EF4444);
+    GFX_DrawString(x + 12, y + 6, "[⏻] SHUT DOWN", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+    GFX_DrawString(x + 12, y + 18, "Safely power off computer hardware", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+    y += 40;
+
+    // 2. Restart Button
+    GFX_FillRect(x, y, btnW, btnH, 0x0078350F);
+    GFX_DrawRect(x, y, btnW, btnH, 0x00F59E0B);
+    GFX_DrawString(x + 12, y + 6, "[↻] RESTART", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+    GFX_DrawString(x + 12, y + 18, "Reboot system and restart kernel", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+    y += 40;
+
+    // 3. Sleep Button
+    GFX_FillRect(x, y, btnW, btnH, 0x001E3A8A);
+    GFX_DrawRect(x, y, btnW, btnH, 0x003B82F6);
+    GFX_DrawString(x + 12, y + 6, "[☾] SLEEP (STANDBY)", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+    GFX_DrawString(x + 12, y + 18, "Low-power suspended idle mode", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+    y += 40;
+
+    // 4. Hibernate Button
+    GFX_FillRect(x, y, btnW, btnH, 0x00581C87);
+    GFX_DrawRect(x, y, btnW, btnH, 0x00A855F7);
+    GFX_DrawString(x + 12, y + 6, "[◰] HIBERNATE", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+    GFX_DrawString(x + 12, y + 18, "Preserve memory state to disk storage", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+    y += 40;
+
+    // 5. Cancel Button
+    int32_t cW = 80;
+    int32_t cX = win->x + (win->width - cW) / 2;
+    GFX_FillRect(cX, y, cW, 22, 0x001E293B);
+    GFX_DrawRect(cX, y, cW, 22, 0x00475569);
+    GFX_DrawString(cX + 18, y + 5, "Cancel", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+}
+
 // Window Content: File Explorer
 static VFS_DirEntry s_ExplorerCache[32];
 static int          s_ExplorerCount = -1;
@@ -1081,6 +1465,33 @@ static void Draw_FileExplorerWindow(GUI_Window* win)
 
 void GUI_Render(void)
 {
+    if (Power_IsSleeping())
+    {
+        GFX_Clear(0x00020617);
+        int32_t cx = g_GuiWidth / 2;
+        int32_t cy = g_GuiHeight / 2;
+        GFX_FillRect(cx - 160, cy - 60, 320, 120, 0x000F172A);
+        GFX_DrawRect(cx - 160, cy - 60, 320, 120, 0x003B82F6);
+        GFX_DrawString(cx - 80, cy - 36, "[ ☾ SYSTEM ASLEEP ]", GFX_COLOR_CYAN, GFX_COLOR_TRANSPARENT);
+        GFX_DrawString(cx - 110, cy - 10, "myOS Low-Power Standby Mode", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+        GFX_DrawString(cx - 130, cy + 20, "Press any key or move mouse to wake", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+        GFX_SwapBuffersDirty(0, 0, g_GuiWidth, g_GuiHeight);
+        return;
+    }
+    if (Power_IsHibernating())
+    {
+        GFX_Clear(0x00020617);
+        int32_t cx = g_GuiWidth / 2;
+        int32_t cy = g_GuiHeight / 2;
+        GFX_FillRect(cx - 170, cy - 60, 340, 120, 0x000F172A);
+        GFX_DrawRect(cx - 170, cy - 60, 340, 120, 0x00A855F7);
+        GFX_DrawString(cx - 80, cy - 36, "[ ◰ HIBERNATING ]", 0x00D946EF, GFX_COLOR_TRANSPARENT);
+        GFX_DrawString(cx - 120, cy - 10, "myOS Session Preserved to Disk", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+        GFX_DrawString(cx - 136, cy + 20, "Press any key or move mouse to resume", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+        GFX_SwapBuffersDirty(0, 0, g_GuiWidth, g_GuiHeight);
+        return;
+    }
+
     uint8_t flags = spinlock_acquire_irqsave(&g_GuiLock);
     if (!g_GuiDirty)
     {
@@ -1182,6 +1593,40 @@ void GUI_Task(void)
 
     while (g_GuiRunning)
     {
+        // 0. Check Sleep / Hibernate state
+        if (Power_IsSleeping() || Power_IsHibernating())
+        {
+            bool wake = false;
+            if (i686_Keyboard_HasEvent())
+            {
+                KeyboardEvent dummy;
+                i686_Keyboard_GetEvent(&dummy);
+                if (dummy.pressed) wake = true;
+            }
+            MouseState m;
+            Mouse_GetState(&m);
+            if (m.x != g_PrevMouseX || m.y != g_PrevMouseY || m.leftButton)
+            {
+                g_PrevMouseX = m.x;
+                g_PrevMouseY = m.y;
+                wake = true;
+            }
+
+            if (wake)
+            {
+                Power_Wakeup();
+                g_DesktopNeedsRedraw = true;
+                MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+            }
+
+            if (g_GuiDirty)
+            {
+                GUI_Render();
+            }
+            Task_Yield();
+            continue;
+        }
+
         // 1. Drain keyboard events
         while (i686_Keyboard_HasEvent())
         {
@@ -1213,16 +1658,26 @@ void GUI_Task(void)
                     GUI_HandleFileExplorerKey(&kev);
                 }
             }
-            else if (g_WindowList && g_WindowList->isVisible && g_WindowList->owner_pid > 0)
+            else if (g_WindowList && g_WindowList->isVisible)
             {
-                gui_event_t ev;
-                memset(&ev, 0, sizeof(ev));
-                ev.type = kev.pressed ? GUI_EVENT_KEY_DOWN : GUI_EVENT_KEY_UP;
-                ev.window_id = g_WindowList->id;
-                ev.key_char = (uint32_t)kev.ascii;
-                ev.key_code = (uint32_t)kev.scancode;
-                ev.modifiers = (kev.shift ? 1 : 0) | (kev.ctrl ? 2 : 0) | (kev.alt ? 4 : 0);
-                GUI_EnqueueEvent(g_WindowList, &ev);
+                if (strcmp(g_WindowList->title, "Terminal (Shell)") == 0)
+                {
+                    if (kev.pressed)
+                    {
+                        GUI_HandleTerminalKey(&kev);
+                    }
+                }
+                else if (g_WindowList->owner_pid > 0)
+                {
+                    gui_event_t ev;
+                    memset(&ev, 0, sizeof(ev));
+                    ev.type = kev.pressed ? GUI_EVENT_KEY_DOWN : GUI_EVENT_KEY_UP;
+                    ev.window_id = g_WindowList->id;
+                    ev.key_char = (uint32_t)kev.ascii;
+                    ev.key_code = (uint32_t)kev.scancode;
+                    ev.modifiers = (kev.shift ? 1 : 0) | (kev.ctrl ? 2 : 0) | (kev.alt ? 4 : 0);
+                    GUI_EnqueueEvent(g_WindowList, &ev);
+                }
             }
         }
 
@@ -1259,18 +1714,35 @@ void GUI_Task(void)
                     MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
                     handled = true;
                 }
-                // Search Bar Click: 88 to 288
-                else if (mouse.x >= 88 && mouse.x <= 288)
+                // Search Bar Click: 88 to 268
+                else if (mouse.x >= 88 && mouse.x <= 268)
                 {
                     g_StartMenuOpen = true;
                     g_DesktopNeedsRedraw = true;
                     MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
                     handled = true;
                 }
-                // Running Task Tabs Click
-                else if (mouse.x >= 296)
+                // Taskbar Power Button Click: g_GuiWidth - 84 to g_GuiWidth
+                else if (mouse.x >= (int32_t)(g_GuiWidth - 84))
                 {
-                    int32_t curTabX = 296;
+                    GUI_Window* wPwr = GUI_FindWindowByTitle("Power Management");
+                    if (wPwr)
+                    {
+                        wPwr->isVisible = !wPwr->isVisible;
+                        if (wPwr->isVisible) GUI_FocusWindow(wPwr);
+                    }
+                    else
+                    {
+                        GUI_CreateWindow("Power Management", 320, 220, 380, 270, Draw_PowerWindow);
+                    }
+                    g_DesktopNeedsRedraw = true;
+                    MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+                    handled = true;
+                }
+                // Running Task Tabs Click
+                else if (mouse.x >= 274 && mouse.x < (int32_t)(g_GuiWidth - 90))
+                {
+                    int32_t curTabX = 274;
                     GUI_Window* curW = g_WindowList;
                     while (curW)
                     {
@@ -1296,23 +1768,60 @@ void GUI_Task(void)
             {
                 int32_t menuX = 6;
                 int32_t menuW = 390;
-                int32_t menuH = 370;
+                int32_t menuH = 405;
                 int32_t menuY = barY - menuH - 4;
 
                 if (mouse.x >= menuX && mouse.x < menuX + menuW &&
                     mouse.y >= menuY && mouse.y < menuY + menuH)
                 {
-                    // Check if clicked an item row
-                    int matches[16];
-                    int matchCount = GetMatchingCatalogIndices(matches, 16);
-                    for (int idx = 0; idx < matchCount && idx < 6; idx++)
+                    // Check if clicked the bottom power bar (menuY + menuH - 56 .. + 30)
+                    int32_t pwrY = menuY + menuH - 56;
+                    if (mouse.y >= pwrY && mouse.y <= pwrY + 28)
                     {
-                        int32_t rowY = menuY + 86 + (idx * 41);
-                        if (mouse.y >= rowY && mouse.y < rowY + 38)
+                        if (mouse.x >= menuX + 10 && mouse.x < menuX + 94)
                         {
-                            GUI_LaunchCatalogItem(matches[idx]);
+                            g_StartMenuOpen = false;
+                            Power_Shutdown();
                             handled = true;
-                            break;
+                        }
+                        else if (mouse.x >= menuX + 102 && mouse.x < menuX + 188)
+                        {
+                            g_StartMenuOpen = false;
+                            Power_Reboot();
+                            handled = true;
+                        }
+                        else if (mouse.x >= menuX + 196 && mouse.x < menuX + 280)
+                        {
+                            g_StartMenuOpen = false;
+                            Power_Sleep();
+                            g_DesktopNeedsRedraw = true;
+                            MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+                            handled = true;
+                        }
+                        else if (mouse.x >= menuX + 288 && mouse.x < menuX + 378)
+                        {
+                            g_StartMenuOpen = false;
+                            Power_Hibernate();
+                            g_DesktopNeedsRedraw = true;
+                            MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+                            handled = true;
+                        }
+                    }
+
+                    // Check if clicked an item row
+                    if (!handled)
+                    {
+                        int matches[16];
+                        int matchCount = GetMatchingCatalogIndices(matches, 16);
+                        for (int idx = 0; idx < matchCount && idx < 6; idx++)
+                        {
+                            int32_t rowY = menuY + 86 + (idx * 40);
+                            if (mouse.y >= rowY && mouse.y < rowY + 37)
+                            {
+                                GUI_LaunchCatalogItem(matches[idx]);
+                                handled = true;
+                                break;
+                            }
                         }
                     }
                     handled = true; // Click inside menu doesn't pass through
@@ -1419,6 +1928,46 @@ void GUI_Task(void)
                         mouse.y >= clientY && mouse.y < clientY + clientH)
                     {
                         GUI_FocusWindow(w);
+
+                        // Check Power Management Window Buttons
+                        if (strcmp(w->title, "Power Management") == 0)
+                        {
+                            int32_t relY = mouse.y - (w->y + TITLEBAR_HEIGHT + 14);
+                            if (relY >= 20 && relY < 20 + 34)
+                            {
+                                Power_Shutdown();
+                                break;
+                            }
+                            else if (relY >= 60 && relY < 60 + 34)
+                            {
+                                Power_Reboot();
+                                break;
+                            }
+                            else if (relY >= 100 && relY < 100 + 34)
+                            {
+                                w->isVisible = false;
+                                Power_Sleep();
+                                g_DesktopNeedsRedraw = true;
+                                MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+                                break;
+                            }
+                            else if (relY >= 140 && relY < 140 + 34)
+                            {
+                                w->isVisible = false;
+                                Power_Hibernate();
+                                g_DesktopNeedsRedraw = true;
+                                MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+                                break;
+                            }
+                            else if (relY >= 180 && relY < 180 + 26)
+                            {
+                                w->isVisible = false;
+                                g_DesktopNeedsRedraw = true;
+                                MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+                                break;
+                            }
+                        }
+
                         if (w->owner_pid > 0)
                         {
                             gui_event_t ev;
@@ -1548,9 +2097,11 @@ bool GUI_Initialize(uint32_t width, uint32_t height)
     // 3. Create default desktop windows
     GUI_CreateWindow("MLFQ Scheduler", 30, 30, 460, 230, Draw_SchedulerWindow);
     GUI_CreateWindow("System Memory", 520, 30, 460, 230, Draw_MemoryWindow);
-    GUI_CreateWindow("Terminal Log", 30, 280, 460, 250, Draw_ConsoleWindow);
-    GUI_CreateWindow("About myOS", 520, 280, 460, 250, Draw_AboutWindow);
+    GUI_CreateWindow("Terminal (Shell)", 30, 280, 520, 300, Draw_TerminalWindow);
+    GUI_CreateWindow("About myOS", 580, 280, 410, 250, Draw_AboutWindow);
     GUI_CreateWindow("File Explorer (/)", 240, 160, 520, 300, Draw_FileExplorerWindow);
+    GUI_Window* pwrWin = GUI_CreateWindow("Power Management", 320, 220, 380, 270, Draw_PowerWindow);
+    if (pwrWin) pwrWin->isVisible = false;
 
     g_GuiRunning = true;
     log_info(MODULE, "GUI Subsystem successfully initialized!");

@@ -9,6 +9,7 @@
 #include <hal/shell.h>
 #include <hal/gfx.h>
 #include <hal/gui.h>
+#include <hal/power.h>
 #include <arch/i686/keyboard.h>
 #include <arch/i686/pci.h>
 #include <arch/i686/bga.h>
