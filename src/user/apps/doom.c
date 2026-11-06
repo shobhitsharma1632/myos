@@ -898,6 +898,8 @@ static void RenderFrame(void)
     printf("==================================================\n");
 }
 
+static bool s_Keys[256];
+
 int main(int argc, char* argv[])
 {
     bool test_mode = false;
@@ -906,6 +908,7 @@ int main(int argc, char* argv[])
         test_mode = true;
     }
 
+    memset(s_Keys, 0, sizeof(s_Keys));
     LoadLevel(0);
 
     if (test_mode)
@@ -953,6 +956,7 @@ int main(int argc, char* argv[])
 
     // Interactive Game Loop
     uint32_t last_logic_tick = sys_getticks();
+    uint32_t last_move_tick  = sys_getticks();
 
     while (g_PlayerHealth > 0)
     {
@@ -970,7 +974,6 @@ int main(int argc, char* argv[])
 
         // 2. Poll Input Events (Window Server & Raw Keyboard)
         bool quit = false;
-        char c = 0;
 
         // Poll GUI Window Events
         if (g_Win)
@@ -985,7 +988,31 @@ int main(int argc, char* argv[])
                 }
                 else if (ev.type == GUI_EVENT_KEY_DOWN)
                 {
-                    c = (char)ev.key_char;
+                    char k = (char)ev.key_char;
+                    if (k >= 'A' && k <= 'Z') k += 32;
+                    if ((uint8_t)k < 256) s_Keys[(uint8_t)k] = true;
+
+                    // Support direct WASD scancodes & arrow keys
+                    if (ev.key_code == 0x11 || ev.key_code == 0xC8) s_Keys['w'] = true; // W or Up
+                    if (ev.key_code == 0x1F || ev.key_code == 0xD0) s_Keys['s'] = true; // S or Down
+                    if (ev.key_code == 0x1E || ev.key_code == 0xCB) s_Keys['a'] = true; // A or Left
+                    if (ev.key_code == 0x20 || ev.key_code == 0xCD) s_Keys['d'] = true; // D or Right
+
+                    if (ev.key_code == 0x39 || k == ' ') FireWeapon(); // Space fires
+                    if (k == '1') g_CurrentWeapon = 1;
+                    if (k == '2') g_CurrentWeapon = 2;
+                    if (k == 'q') quit = true;
+                }
+                else if (ev.type == GUI_EVENT_KEY_UP)
+                {
+                    char k = (char)ev.key_char;
+                    if (k >= 'A' && k <= 'Z') k += 32;
+                    if ((uint8_t)k < 256) s_Keys[(uint8_t)k] = false;
+
+                    if (ev.key_code == 0x11 || ev.key_code == 0xC8) s_Keys['w'] = false;
+                    if (ev.key_code == 0x1F || ev.key_code == 0xD0) s_Keys['s'] = false;
+                    if (ev.key_code == 0x1E || ev.key_code == 0xCB) s_Keys['a'] = false;
+                    if (ev.key_code == 0x20 || ev.key_code == 0xCD) s_Keys['d'] = false;
                 }
                 else if (ev.type == GUI_EVENT_MOUSE_DOWN)
                 {
@@ -993,28 +1020,40 @@ int main(int argc, char* argv[])
                 }
             }
         }
-
-        // Also drain hardware keyboard buffer
-        if (c == 0)
+        else
         {
+            // Console fallback mode
             char raw_c = 0;
             if (sys_read(&raw_c, 1) > 0)
             {
-                c = raw_c;
+                if (raw_c == 'q' || raw_c == 'Q') quit = true;
+                else if (raw_c == 'w' || raw_c == 'W') s_Keys['w'] = true;
+                else if (raw_c == 's' || raw_c == 'S') s_Keys['s'] = true;
+                else if (raw_c == 'a' || raw_c == 'A') s_Keys['a'] = true;
+                else if (raw_c == 'd' || raw_c == 'D') s_Keys['d'] = true;
+                else if (raw_c == ' ') FireWeapon();
+                else if (raw_c == '1') g_CurrentWeapon = 1;
+                else if (raw_c == '2') g_CurrentWeapon = 2;
             }
         }
 
-        // Handle Movement & Weapon Controls
-        if (c != 0)
+        if (quit) break;
+
+        // 3. Zero-Latency Smooth Player Movement (Immediate & Continuous)
+        uint32_t now = sys_getticks();
+        uint32_t dt_ticks = now - last_move_tick;
+        if (dt_ticks > 0)
         {
-            if (c == 'q' || c == 'Q')
+            if (dt_ticks > 5) dt_ticks = 5;
+            last_move_tick = now;
+
+            float move_step = 0.08f * (float)dt_ticks;
+            float rot_step  = 0.05f * (float)dt_ticks;
+
+            if (s_Keys['w'])
             {
-                quit = true;
-            }
-            else if (c == 'w' || c == 'W')
-            {
-                float nx = g_PlayerX + g_PlayerDirX * 0.4f;
-                float ny = g_PlayerY + g_PlayerDirY * 0.4f;
+                float nx = g_PlayerX + g_PlayerDirX * move_step;
+                float ny = g_PlayerY + g_PlayerDirY * move_step;
                 Level* lvl = &g_Levels[g_CurrentLevelIdx];
                 if (lvl->map[(int)ny][(int)nx] == 0)
                 {
@@ -1026,10 +1065,10 @@ int main(int argc, char* argv[])
                     LoadLevel((g_CurrentLevelIdx + 1) % NUM_LEVELS);
                 }
             }
-            else if (c == 's' || c == 'S')
+            if (s_Keys['s'])
             {
-                float nx = g_PlayerX - g_PlayerDirX * 0.3f;
-                float ny = g_PlayerY - g_PlayerDirY * 0.3f;
+                float nx = g_PlayerX - g_PlayerDirX * move_step;
+                float ny = g_PlayerY - g_PlayerDirY * move_step;
                 Level* lvl = &g_Levels[g_CurrentLevelIdx];
                 if (lvl->map[(int)ny][(int)nx] == 0)
                 {
@@ -1037,9 +1076,9 @@ int main(int argc, char* argv[])
                     g_PlayerY = ny;
                 }
             }
-            else if (c == 'a' || c == 'A') // Turn left
+            if (s_Keys['a']) // Turn left
             {
-                float rot = -0.15f;
+                float rot = -rot_step;
                 float oldDirX = g_PlayerDirX;
                 g_PlayerDirX = g_PlayerDirX * (float)cos((double)rot) - g_PlayerDirY * (float)sin((double)rot);
                 g_PlayerDirY = oldDirX * (float)sin((double)rot) + g_PlayerDirY * (float)cos((double)rot);
@@ -1047,9 +1086,9 @@ int main(int argc, char* argv[])
                 g_PlaneX = g_PlaneX * (float)cos((double)rot) - g_PlaneY * (float)sin((double)rot);
                 g_PlaneY = oldPlaneX * (float)sin((double)rot) + g_PlaneY * (float)cos((double)rot);
             }
-            else if (c == 'd' || c == 'D') // Turn right
+            if (s_Keys['d']) // Turn right
             {
-                float rot = 0.15f;
+                float rot = rot_step;
                 float oldDirX = g_PlayerDirX;
                 g_PlayerDirX = g_PlayerDirX * (float)cos((double)rot) - g_PlayerDirY * (float)sin((double)rot);
                 g_PlayerDirY = oldDirX * (float)sin((double)rot) + g_PlayerDirY * (float)cos((double)rot);
@@ -1057,24 +1096,18 @@ int main(int argc, char* argv[])
                 g_PlaneX = g_PlaneX * (float)cos((double)rot) - g_PlaneY * (float)sin((double)rot);
                 g_PlaneY = oldPlaneX * (float)sin((double)rot) + g_PlaneY * (float)cos((double)rot);
             }
-            else if (c == ' ') // Fire
+
+            // Auto-clear keys in single-char console mode
+            if (!g_Win)
             {
-                FireWeapon();
-            }
-            else if (c == '1')
-            {
-                g_CurrentWeapon = 1;
-            }
-            else if (c == '2')
-            {
-                g_CurrentWeapon = 2;
+                s_Keys['w'] = false;
+                s_Keys['s'] = false;
+                s_Keys['a'] = false;
+                s_Keys['d'] = false;
             }
         }
 
-        if (quit) break;
-
-        // Fixed-rate game logic update (33 Hz)
-        uint32_t now = sys_getticks();
+        // 4. Fixed-rate game logic update (33 Hz)
         if (now - last_logic_tick >= 3)
         {
             UpdateEnemies();

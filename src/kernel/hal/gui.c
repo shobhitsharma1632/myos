@@ -45,6 +45,65 @@ static int32_t  g_DirtyMinY = 0;
 static int32_t  g_DirtyMaxX = 1024;
 static int32_t  g_DirtyMaxY = 768;
 
+static bool g_StartMenuOpen = false;
+static char g_AppSearchQuery[32] = "";
+static int  g_AppSearchSelected = 0;
+static bool g_FileExplorerSearchActive = false;
+static char s_FileFilter[32] = "";
+
+typedef struct {
+    const char* name;
+    const char* category;
+    const char* description;
+    const char* elf_path;
+    const char* win_title;
+    uint32_t    badge_color;
+} AppLauncherItem;
+
+static const AppLauncherItem s_AppCatalog[] = {
+    { "DOOM (3D Raycaster)", "GAME", "3D retro raycasting action game",       "/bin/doom.elf",    NULL,                0x00DC2626 },
+    { "Tetris",              "GAME", "Classic falling tetromino puzzle",      "/bin/tetris.elf",  NULL,                0x002563EB },
+    { "Snake",               "GAME", "Retro arcade snake game",               "/bin/snake.elf",   NULL,                0x00059669 },
+    { "Terminal / Shell",    "TERM", "myOS interactive command shell",        "/bin/sh.elf",      NULL,                0x00D97706 },
+    { "File Explorer",       "FILE", "Browse VFS, disk sectors & directories",NULL,               "File Explorer (/)", 0x000891B2 },
+    { "Terminal Log",        "TERM", "System console log & kernel output",    NULL,               "Terminal Log",      0x00D97706 },
+    { "Notepad",             "APPS", "Graphical text editor & scratchpad",    "/bin/notepad.elf", NULL,                0x007C3AED },
+    { "Paint",               "APPS", "Graphical canvas drawing application",  "/bin/paint.elf",   NULL,                0x00DB2777 },
+    { "System Monitor",      "SYS",  "Real-time CPU & memory resource stats", "/bin/sysmon.elf",  NULL,                0x000D9488 },
+    { "MLFQ Scheduler",      "SYS",  "Multi-core 3-level queue visualizer",   NULL,               "MLFQ Scheduler",    0x00059669 },
+    { "System Memory",       "SYS",  "Physical & virtual memory inspector",   NULL,               "System Memory",     0x004F46E5 },
+    { "Sound Blaster Audio", "APPS", "SB16 16-bit PCM wav audio player",      "/bin/play.elf",    NULL,                0x00CA8A04 },
+    { "Calculator",          "APPS", "Arithmetic command calculator",         "/bin/calc.elf",    NULL,                0x00475569 },
+    { "SMP Topology",        "SYS",  "CPU cores & Local APIC report",         "/bin/smpinfo.elf", NULL,                0x000891B2 },
+    { "About myOS",          "SYS",  "OS kernel architecture & build info",   NULL,               "About myOS",        0x0064748B },
+};
+#define APP_CATALOG_SIZE (sizeof(s_AppCatalog) / sizeof(s_AppCatalog[0]))
+
+static inline char to_lower(char c)
+{
+    if (c >= 'A' && c <= 'Z') return c + 32;
+    return c;
+}
+
+static bool str_contains_case_insensitive(const char* haystack, const char* needle)
+{
+    if (!haystack || !needle) return false;
+    if (needle[0] == '\0') return true;
+
+    for (size_t i = 0; haystack[i] != '\0'; i++)
+    {
+        size_t j = 0;
+        while (needle[j] != '\0' && haystack[i + j] != '\0' &&
+               to_lower(haystack[i + j]) == to_lower(needle[j]))
+        {
+            j++;
+        }
+        if (needle[j] == '\0')
+            return true;
+    }
+    return false;
+}
+
 static void MarkRegionDirty(int32_t x, int32_t y, int32_t w, int32_t h)
 {
     if (w <= 0 || h <= 0) return;
@@ -239,6 +298,19 @@ GUI_Window* GUI_FindWindowById(uint32_t id)
     return NULL;
 }
 
+GUI_Window* GUI_FindWindowByTitle(const char* title)
+{
+    if (!title) return NULL;
+    GUI_Window* cur = g_WindowList;
+    while (cur)
+    {
+        if (strcmp(cur->title, title) == 0)
+            return cur;
+        cur = cur->next;
+    }
+    return NULL;
+}
+
 void GUI_DestroyWindow(GUI_Window* win)
 {
     if (!win) return;
@@ -379,6 +451,262 @@ void GUI_CleanupProcessWindows(uint32_t pid)
     }
 }
 
+static int GetMatchingCatalogIndices(int* outIndices, int maxResults)
+{
+    int count = 0;
+    for (int i = 0; i < (int)APP_CATALOG_SIZE && count < maxResults; i++)
+    {
+        const AppLauncherItem* item = &s_AppCatalog[i];
+        if (g_AppSearchQuery[0] == '\0' ||
+            str_contains_case_insensitive(item->name, g_AppSearchQuery) ||
+            str_contains_case_insensitive(item->category, g_AppSearchQuery) ||
+            str_contains_case_insensitive(item->description, g_AppSearchQuery))
+        {
+            outIndices[count++] = i;
+        }
+    }
+    return count;
+}
+
+static void GUI_LaunchCatalogItem(int catalogIdx)
+{
+    if (catalogIdx < 0 || catalogIdx >= (int)APP_CATALOG_SIZE) return;
+    const AppLauncherItem* item = &s_AppCatalog[catalogIdx];
+
+    if (item->win_title)
+    {
+        GUI_Window* w = GUI_FindWindowByTitle(item->win_title);
+        if (w)
+        {
+            w->isVisible = true;
+            GUI_FocusWindow(w);
+        }
+        else
+        {
+            if (strcmp(item->win_title, "File Explorer (/)") == 0)
+                GUI_CreateWindow("File Explorer (/)", 240, 160, 520, 300, Draw_FileExplorerWindow);
+            else if (strcmp(item->win_title, "Terminal Log") == 0)
+                GUI_CreateWindow("Terminal Log", 30, 280, 460, 250, Draw_ConsoleWindow);
+            else if (strcmp(item->win_title, "MLFQ Scheduler") == 0)
+                GUI_CreateWindow("MLFQ Scheduler", 30, 30, 460, 230, Draw_SchedulerWindow);
+            else if (strcmp(item->win_title, "System Memory") == 0)
+                GUI_CreateWindow("System Memory", 520, 30, 460, 230, Draw_MemoryWindow);
+            else if (strcmp(item->win_title, "About myOS") == 0)
+                GUI_CreateWindow("About myOS", 520, 280, 460, 250, Draw_AboutWindow);
+        }
+    }
+    else if (item->elf_path)
+    {
+        char* argv[] = { (char*)item->elf_path, NULL };
+        Task_CreateUserFromELF(item->name, item->elf_path, 1, argv);
+    }
+
+    g_StartMenuOpen = false;
+    g_DesktopNeedsRedraw = true;
+    MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+}
+
+static void GUI_DrawStartMenu(void)
+{
+    int32_t barY = g_GuiHeight - TASKBAR_HEIGHT;
+    int32_t menuX = 6;
+    int32_t menuW = 390;
+    int32_t menuH = 370;
+    int32_t menuY = barY - menuH - 4;
+
+    // 1. Drop shadow
+    GFX_FillRect(menuX + 4, menuY + 4, menuW, menuH, SHADOW_COLOR);
+
+    // 2. Main background & border
+    GFX_FillRect(menuX, menuY, menuW, menuH, 0x000F172A);
+    GFX_DrawRect(menuX, menuY, menuW, menuH, 0x00334155);
+    GFX_DrawRect(menuX + 1, menuY + 1, menuW - 2, menuH - 2, 0x001E293B);
+
+    // 3. Header title bar
+    GFX_FillRect(menuX + 2, menuY + 2, menuW - 4, 28, 0x001E293B);
+    GFX_DrawString(menuX + 12, menuY + 10, "myOS Applications & Launcher", GFX_COLOR_CYAN, GFX_COLOR_TRANSPARENT);
+
+    // 4. Search input box
+    int32_t boxX = menuX + 12;
+    int32_t boxY = menuY + 36;
+    int32_t boxW = menuW - 24;
+    int32_t boxH = 26;
+
+    GFX_FillRect(boxX, boxY, boxW, boxH, 0x00111827);
+    GFX_DrawRect(boxX, boxY, boxW, boxH, 0x003B82F6);
+    GFX_DrawString(boxX + 6, boxY + 7, "[?]", GFX_COLOR_CYAN, GFX_COLOR_TRANSPARENT);
+
+    if (g_AppSearchQuery[0] == '\0')
+    {
+        GFX_DrawString(boxX + 28, boxY + 7, "Type to search (games, term, files)...", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+    }
+    else
+    {
+        char searchDisp[40];
+        snprintf(searchDisp, sizeof(searchDisp), "%s_", g_AppSearchQuery);
+        GFX_DrawString(boxX + 28, boxY + 7, searchDisp, GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+    }
+
+    // 5. Results listing
+    int matches[16];
+    int matchCount = GetMatchingCatalogIndices(matches, 16);
+
+    char countStr[48];
+    if (g_AppSearchQuery[0] == '\0')
+    {
+        snprintf(countStr, sizeof(countStr), "All Applications (%d available):", matchCount);
+    }
+    else
+    {
+        snprintf(countStr, sizeof(countStr), "Search Results (%d found for \"%s\"):", matchCount, g_AppSearchQuery);
+    }
+    GFX_DrawString(menuX + 14, menuY + 68, countStr, GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+
+    if (matchCount == 0)
+    {
+        GFX_DrawString(menuX + 20, menuY + 110, "No matching applications found.", GFX_COLOR_AMBER, GFX_COLOR_TRANSPARENT);
+        GFX_DrawString(menuX + 20, menuY + 130, "Try searching: doom, tetris, sh, file", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+    }
+    else
+    {
+        int maxVisible = 6;
+        for (int idx = 0; idx < matchCount && idx < maxVisible; idx++)
+        {
+            int catIdx = matches[idx];
+            const AppLauncherItem* item = &s_AppCatalog[catIdx];
+            int32_t rowY = menuY + 86 + (idx * 41);
+
+            bool isSel = (idx == g_AppSearchSelected);
+            if (isSel)
+            {
+                GFX_FillRect(menuX + 8, rowY, menuW - 16, 38, 0x001E3A8A);
+                GFX_DrawRect(menuX + 8, rowY, menuW - 16, 38, 0x003B82F6);
+            }
+            else
+            {
+                GFX_FillRect(menuX + 8, rowY, menuW - 16, 38, 0x00141E33);
+                GFX_DrawRect(menuX + 8, rowY, menuW - 16, 38, 0x001E293B);
+            }
+
+            // Category badge
+            GFX_FillRect(menuX + 14, rowY + 6, 44, 14, item->badge_color);
+            GFX_DrawString(menuX + 16, rowY + 8, item->category, GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+
+            // Name
+            uint32_t nameCol = isSel ? GFX_COLOR_CYAN : GFX_COLOR_WHITE;
+            GFX_DrawString(menuX + 64, rowY + 6, item->name, nameCol, GFX_COLOR_TRANSPARENT);
+
+            // Description
+            GFX_DrawString(menuX + 64, rowY + 20, item->description, GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+        }
+    }
+
+    // 6. Footer instructions
+    int32_t footY = menuY + menuH - 24;
+    GFX_FillRect(menuX + 2, footY, menuW - 4, 22, 0x00111827);
+    GFX_DrawLine(menuX + 2, footY, menuX + menuW - 2, footY, 0x001E293B);
+    GFX_DrawString(menuX + 12, footY + 6, "[Click] or [Enter]: Launch  |  [Esc]: Close", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+}
+
+static void GUI_HandleStartMenuKey(const KeyboardEvent* kev)
+{
+    if (kev->ascii == 27) // Escape
+    {
+        g_StartMenuOpen = false;
+        g_DesktopNeedsRedraw = true;
+        MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+        return;
+    }
+    else if (kev->ascii == '\n' || kev->ascii == '\r') // Enter
+    {
+        int matches[16];
+        int count = GetMatchingCatalogIndices(matches, 16);
+        if (count > 0 && g_AppSearchSelected >= 0 && g_AppSearchSelected < count)
+        {
+            GUI_LaunchCatalogItem(matches[g_AppSearchSelected]);
+        }
+        return;
+    }
+    else if (kev->ascii == '\b') // Backspace
+    {
+        size_t len = strlen(g_AppSearchQuery);
+        if (len > 0)
+        {
+            g_AppSearchQuery[len - 1] = '\0';
+            g_AppSearchSelected = 0;
+            g_DesktopNeedsRedraw = true;
+            MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+        }
+        return;
+    }
+    else if (kev->scancode == 0xC8 || kev->scancode == 0x48) // Up arrow
+    {
+        if (g_AppSearchSelected > 0)
+        {
+            g_AppSearchSelected--;
+            g_DesktopNeedsRedraw = true;
+            MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+        }
+        return;
+    }
+    else if (kev->scancode == 0xD0 || kev->scancode == 0x50) // Down arrow
+    {
+        int matches[16];
+        int count = GetMatchingCatalogIndices(matches, 16);
+        if (g_AppSearchSelected < count - 1)
+        {
+            g_AppSearchSelected++;
+            g_DesktopNeedsRedraw = true;
+            MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+        }
+        return;
+    }
+    else if (kev->ascii >= 32 && kev->ascii <= 126) // Printable char
+    {
+        size_t len = strlen(g_AppSearchQuery);
+        if (len < sizeof(g_AppSearchQuery) - 1)
+        {
+            g_AppSearchQuery[len] = kev->ascii;
+            g_AppSearchQuery[len + 1] = '\0';
+            g_AppSearchSelected = 0;
+            g_DesktopNeedsRedraw = true;
+            MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+        }
+    }
+}
+
+static void GUI_HandleFileExplorerKey(const KeyboardEvent* kev)
+{
+    if (kev->ascii == 27) // Escape
+    {
+        g_FileExplorerSearchActive = false;
+        s_FileFilter[0] = '\0';
+        g_DesktopNeedsRedraw = true;
+        MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+    }
+    else if (kev->ascii == '\b') // Backspace
+    {
+        size_t len = strlen(s_FileFilter);
+        if (len > 0)
+        {
+            s_FileFilter[len - 1] = '\0';
+            g_DesktopNeedsRedraw = true;
+            MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+        }
+    }
+    else if (kev->ascii >= 32 && kev->ascii <= 126) // Printable char
+    {
+        size_t len = strlen(s_FileFilter);
+        if (len < sizeof(s_FileFilter) - 1)
+        {
+            s_FileFilter[len] = kev->ascii;
+            s_FileFilter[len + 1] = '\0';
+            g_DesktopNeedsRedraw = true;
+            MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+        }
+    }
+}
+
 static void GUI_DrawDesktop(void)
 {
     // 1. Draw elegant desktop background
@@ -399,12 +727,30 @@ static void GUI_DrawDesktop(void)
     GFX_FillRect(0, barY, g_GuiWidth, 1, 0x00475569); // Top accent border
 
     // Start Button
-    GFX_FillRect(6, barY + 4, 76, 24, 0x000F766E);
+    uint32_t startBg = g_StartMenuOpen ? 0x000D9488 : 0x000F766E;
+    GFX_FillRect(6, barY + 4, 76, 24, startBg);
     GFX_DrawRect(6, barY + 4, 76, 24, 0x0014B8A6);
-    GFX_DrawString(16, barY + 12, "myOS", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+    GFX_DrawString(14, barY + 12, "[+] myOS", GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+
+    // Taskbar Search Bar
+    int32_t sbX = 88;
+    int32_t sbW = 200;
+    GFX_FillRect(sbX, barY + 4, sbW, 24, 0x000F172A);
+    GFX_DrawRect(sbX, barY + 4, sbW, 24, g_StartMenuOpen ? 0x003B82F6 : 0x00334155);
+    GFX_DrawString(sbX + 8, barY + 12, "[?]", GFX_COLOR_CYAN, GFX_COLOR_TRANSPARENT);
+    if (g_AppSearchQuery[0] != '\0')
+    {
+        char disp[32];
+        snprintf(disp, sizeof(disp), "%s_", g_AppSearchQuery);
+        GFX_DrawString(sbX + 28, barY + 12, disp, GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+    }
+    else
+    {
+        GFX_DrawString(sbX + 28, barY + 12, "Search apps (/)...", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+    }
 
     // Running Tasks Indicator
-    int32_t taskX = 92;
+    int32_t taskX = 296;
     GUI_Window* cur = g_WindowList;
     while (cur)
     {
@@ -412,17 +758,17 @@ static void GUI_DrawDesktop(void)
         {
             uint32_t tabColor = cur->isFocused ? 0x001E293B : 0x00334155;
             uint32_t borderColor = cur->isFocused ? 0x003B82F6 : 0x00475569;
-            GFX_FillRect(taskX, barY + 4, 110, 24, tabColor);
-            GFX_DrawRect(taskX, barY + 4, 110, 24, borderColor);
+            GFX_FillRect(taskX, barY + 4, 100, 24, tabColor);
+            GFX_DrawRect(taskX, barY + 4, 100, 24, borderColor);
 
             // Truncate title for taskbar tab
-            char tabTitle[12];
+            char tabTitle[11];
             int i = 0;
-            for (; i < 11 && cur->title[i]; i++) tabTitle[i] = cur->title[i];
+            for (; i < 10 && cur->title[i]; i++) tabTitle[i] = cur->title[i];
             tabTitle[i] = '\0';
 
             GFX_DrawString(taskX + 8, barY + 12, tabTitle, GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
-            taskX += 116;
+            taskX += 106;
         }
         cur = cur->next;
     }
@@ -432,7 +778,7 @@ static void GUI_DrawDesktop(void)
     uint32_t freeMb = PMM_GetFreeMemory() / (1024 * 1024);
     uint32_t totalMb = PMM_GetTotalMemory() / (1024 * 1024);
     snprintf(trayStr, sizeof(trayStr), "RAM: %u/%u MB | MLFQ 100Hz", freeMb, totalMb);
-    GFX_DrawString(g_GuiWidth - 260, barY + 12, trayStr, GFX_COLOR_CYAN, GFX_COLOR_TRANSPARENT);
+    GFX_DrawString(g_GuiWidth - 250, barY + 12, trayStr, GFX_COLOR_CYAN, GFX_COLOR_TRANSPARENT);
 }
 
 static void GUI_DrawWindow(GUI_Window* win)
@@ -602,7 +948,7 @@ static void Draw_AboutWindow(GUI_Window* win)
 }
 
 // Window Content: File Explorer
-static VFS_DirEntry s_ExplorerCache[8];
+static VFS_DirEntry s_ExplorerCache[32];
 static int          s_ExplorerCount = -1;
 
 static void CacheExplorerEntries(void)
@@ -610,8 +956,20 @@ static void CacheExplorerEntries(void)
     s_ExplorerCount = 0;
     VFS_DirEntry entry;
     size_t index = 0;
-    while (vfs_readdir("/", index, &entry) == 0 && s_ExplorerCount < 8)
+    // Read root directory entries
+    while (vfs_readdir("/", index, &entry) == 0 && s_ExplorerCount < 16)
     {
+        s_ExplorerCache[s_ExplorerCount++] = entry;
+        index++;
+    }
+    // Read /bin directory entries
+    index = 0;
+    while (vfs_readdir("/bin", index, &entry) == 0 && s_ExplorerCount < 32)
+    {
+        char tmp[64];
+        snprintf(tmp, sizeof(tmp), "bin/%s", entry.name);
+        strncpy(entry.name, tmp, sizeof(entry.name) - 1);
+        entry.name[sizeof(entry.name) - 1] = '\0';
         s_ExplorerCache[s_ExplorerCount++] = entry;
         index++;
     }
@@ -623,8 +981,29 @@ static void Draw_FileExplorerWindow(GUI_Window* win)
     int32_t y = win->y + TITLEBAR_HEIGHT + 10;
 
     GFX_DrawString(x, y, "VFS File Explorer: /", GFX_COLOR_CYAN, GFX_COLOR_TRANSPARENT);
-    y += 16;
 
+    // Search / Filter Box in File Explorer header
+    int32_t fsBoxX = win->x + win->width - 190;
+    int32_t fsBoxY = win->y + TITLEBAR_HEIGHT + 6;
+    int32_t fsBoxW = 176;
+    int32_t fsBoxH = 20;
+
+    GFX_FillRect(fsBoxX, fsBoxY, fsBoxW, fsBoxH, 0x000F172A);
+    GFX_DrawRect(fsBoxX, fsBoxY, fsBoxW, fsBoxH, g_FileExplorerSearchActive ? 0x0006B6D4 : 0x00334155);
+    GFX_DrawString(fsBoxX + 6, fsBoxY + 5, "[?]", GFX_COLOR_CYAN, GFX_COLOR_TRANSPARENT);
+
+    if (s_FileFilter[0] == '\0')
+    {
+        GFX_DrawString(fsBoxX + 28, fsBoxY + 5, "Search files...", GFX_COLOR_LIGHT_SLATE, GFX_COLOR_TRANSPARENT);
+    }
+    else
+    {
+        char filterDisp[36];
+        snprintf(filterDisp, sizeof(filterDisp), "%s%s", s_FileFilter, g_FileExplorerSearchActive ? "_" : "");
+        GFX_DrawString(fsBoxX + 28, fsBoxY + 5, filterDisp, GFX_COLOR_WHITE, GFX_COLOR_TRANSPARENT);
+    }
+
+    y += 18;
     GFX_DrawLine(x, y, x + win->width - 24, y, 0x00334155);
     y += 8;
 
@@ -641,9 +1020,15 @@ static void Draw_FileExplorerWindow(GUI_Window* win)
         CacheExplorerEntries();
     }
 
-    for (int i = 0; i < s_ExplorerCount; i++)
+    int displayed = 0;
+    for (int i = 0; i < s_ExplorerCount && displayed < 7; i++)
     {
         VFS_DirEntry* entry = &s_ExplorerCache[i];
+        if (s_FileFilter[0] != '\0' && !str_contains_case_insensitive(entry->name, s_FileFilter))
+        {
+            continue;
+        }
+
         if (entry->is_directory)
         {
             GFX_FillRect(x, y - 1, 42, 12, 0x00854D0E);
@@ -663,6 +1048,12 @@ static void Draw_FileExplorerWindow(GUI_Window* win)
         }
 
         y += 16;
+        displayed++;
+    }
+
+    if (displayed == 0)
+    {
+        GFX_DrawString(x + 10, y + 10, "No files matching search filter.", GFX_COLOR_AMBER, GFX_COLOR_TRANSPARENT);
     }
 
     // Bottom status bar in explorer
@@ -671,8 +1062,13 @@ static void Draw_FileExplorerWindow(GUI_Window* win)
     GFX_DrawLine(win->x + 2, statusY, win->x + win->width - 2, statusY, 0x00334155);
 
     const ATA_DeviceInfo* dev = ATA_GetDevice();
-    char devInfo[64];
-    if (dev && dev->present)
+    char devInfo[80];
+    if (s_FileFilter[0] != '\0')
+    {
+        snprintf(devInfo, sizeof(devInfo), "Storage: ATA (%u MB) | %d file(s) matched \"%s\"",
+                 dev ? dev->total_mb : 0, displayed, s_FileFilter);
+    }
+    else if (dev && dev->present)
     {
         snprintf(devInfo, sizeof(devInfo), "Storage: ATA Primary Master (%u MB) | FAT12", dev->total_mb);
     }
@@ -692,7 +1088,7 @@ void GUI_Render(void)
         return;
     }
 
-    bool redrawDesktop = g_DesktopNeedsRedraw;
+    bool redrawDesktop = g_DesktopNeedsRedraw || g_StartMenuOpen;
     g_DesktopNeedsRedraw = false;
     int32_t minX = g_DirtyMinX;
     int32_t minY = g_DirtyMinY;
@@ -727,6 +1123,12 @@ void GUI_Render(void)
         {
             GUI_DrawWindow(wins[i]);
             wins[i]->is_damaged = false;
+        }
+
+        // 3. Draw Start Menu & App Search Launcher (on top of windows)
+        if (g_StartMenuOpen)
+        {
+            GUI_DrawStartMenu();
         }
 
         // Mouse pointer
@@ -780,17 +1182,46 @@ void GUI_Task(void)
 
     while (g_GuiRunning)
     {
-        // 1. Drain keyboard events to focused client window
-        if (g_WindowList && g_WindowList->isVisible && g_WindowList->owner_pid > 0)
+        // 1. Drain keyboard events
+        while (i686_Keyboard_HasEvent())
         {
-            while (i686_Keyboard_HasChar())
+            KeyboardEvent kev;
+            if (!i686_Keyboard_GetEvent(&kev)) break;
+
+            // Global search hotkey: '/' opens app launcher if not in file search
+            if (kev.pressed && kev.ascii == '/' && !g_StartMenuOpen && !g_FileExplorerSearchActive)
             {
-                char c = i686_Keyboard_GetChar();
+                g_StartMenuOpen = true;
+                g_AppSearchQuery[0] = '\0';
+                g_AppSearchSelected = 0;
+                g_DesktopNeedsRedraw = true;
+                MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+                continue;
+            }
+
+            if (g_StartMenuOpen)
+            {
+                if (kev.pressed)
+                {
+                    GUI_HandleStartMenuKey(&kev);
+                }
+            }
+            else if (g_FileExplorerSearchActive)
+            {
+                if (kev.pressed)
+                {
+                    GUI_HandleFileExplorerKey(&kev);
+                }
+            }
+            else if (g_WindowList && g_WindowList->isVisible && g_WindowList->owner_pid > 0)
+            {
                 gui_event_t ev;
                 memset(&ev, 0, sizeof(ev));
-                ev.type = GUI_EVENT_KEY_DOWN;
+                ev.type = kev.pressed ? GUI_EVENT_KEY_DOWN : GUI_EVENT_KEY_UP;
                 ev.window_id = g_WindowList->id;
-                ev.key_char = (uint32_t)c;
+                ev.key_char = (uint32_t)kev.ascii;
+                ev.key_code = (uint32_t)kev.scancode;
+                ev.modifiers = (kev.shift ? 1 : 0) | (kev.ctrl ? 2 : 0) | (kev.alt ? 4 : 0);
                 GUI_EnqueueEvent(g_WindowList, &ev);
             }
         }
@@ -811,88 +1242,206 @@ void GUI_Task(void)
             g_DesktopNeedsRedraw = true;
         }
 
+        int32_t barY = g_GuiHeight - TASKBAR_HEIGHT;
+
         if (leftClickDown)
         {
-            GUI_Window* wins[32];
-            int count = 0;
-            GUI_Window* cur = g_WindowList;
-            while (cur && count < 32)
+            bool handled = false;
+
+            // A. Check Taskbar Click
+            if (mouse.y >= barY && mouse.y < (int32_t)g_GuiHeight)
             {
-                wins[count++] = cur;
-                cur = cur->next;
+                // Start Button Click: 6 to 82
+                if (mouse.x >= 6 && mouse.x <= 82)
+                {
+                    g_StartMenuOpen = !g_StartMenuOpen;
+                    g_DesktopNeedsRedraw = true;
+                    MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+                    handled = true;
+                }
+                // Search Bar Click: 88 to 288
+                else if (mouse.x >= 88 && mouse.x <= 288)
+                {
+                    g_StartMenuOpen = true;
+                    g_DesktopNeedsRedraw = true;
+                    MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+                    handled = true;
+                }
+                // Running Task Tabs Click
+                else if (mouse.x >= 296)
+                {
+                    int32_t curTabX = 296;
+                    GUI_Window* curW = g_WindowList;
+                    while (curW)
+                    {
+                        if (curW->isVisible)
+                        {
+                            if (mouse.x >= curTabX && mouse.x < curTabX + 100)
+                            {
+                                GUI_FocusWindow(curW);
+                                g_DesktopNeedsRedraw = true;
+                                MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+                                handled = true;
+                                break;
+                            }
+                            curTabX += 106;
+                        }
+                        curW = curW->next;
+                    }
+                }
             }
 
-            for (int i = 0; i < count; i++)
+            // B. Check Start Menu Popup Click
+            if (!handled && g_StartMenuOpen)
             {
-                GUI_Window* w = wins[i];
-                if (!w->isVisible) continue;
+                int32_t menuX = 6;
+                int32_t menuW = 390;
+                int32_t menuH = 370;
+                int32_t menuY = barY - menuH - 4;
 
-                // Check close button
-                int32_t closeX = w->x + w->width - 19;
-                int32_t closeY = w->y + 4;
-                if (mouse.x >= closeX && mouse.x <= closeX + 15 &&
-                    mouse.y >= closeY && mouse.y <= closeY + 15)
+                if (mouse.x >= menuX && mouse.x < menuX + menuW &&
+                    mouse.y >= menuY && mouse.y < menuY + menuH)
                 {
-                    if (w->owner_pid > 0)
+                    // Check if clicked an item row
+                    int matches[16];
+                    int matchCount = GetMatchingCatalogIndices(matches, 16);
+                    for (int idx = 0; idx < matchCount && idx < 6; idx++)
                     {
-                        gui_event_t ev;
-                        memset(&ev, 0, sizeof(ev));
-                        ev.type = GUI_EVENT_CLOSE;
-                        ev.window_id = w->id;
-                        GUI_EnqueueEvent(w, &ev);
+                        int32_t rowY = menuY + 86 + (idx * 41);
+                        if (mouse.y >= rowY && mouse.y < rowY + 38)
+                        {
+                            GUI_LaunchCatalogItem(matches[idx]);
+                            handled = true;
+                            break;
+                        }
                     }
-                    w->isVisible = false;
+                    handled = true; // Click inside menu doesn't pass through
+                }
+                else
+                {
+                    // Click outside Start Menu closes it
+                    g_StartMenuOpen = false;
                     g_DesktopNeedsRedraw = true;
                     MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
-                    break;
                 }
+            }
 
-                // Check titlebar drag
-                if (mouse.x >= w->x && mouse.x <= w->x + w->width &&
-                    mouse.y >= w->y && mouse.y <= w->y + TITLEBAR_HEIGHT)
+            // C. Check File Explorer Search Box Click
+            if (!handled)
+            {
+                GUI_Window* wExp = GUI_FindWindowByTitle("File Explorer (/)");
+                if (wExp && wExp->isVisible)
                 {
-                    GUI_FocusWindow(w);
-                    w->isDragging = true;
-                    w->dragOffsetX = mouse.x - w->x;
-                    w->dragOffsetY = mouse.y - w->y;
-                    g_ActiveDragWindow = w;
-                    g_DesktopNeedsRedraw = true;
-                    MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
-                    break;
-                }
+                    int32_t fsBoxX = wExp->x + wExp->width - 190;
+                    int32_t fsBoxY = wExp->y + TITLEBAR_HEIGHT + 6;
+                    int32_t fsBoxW = 176;
+                    int32_t fsBoxH = 20;
 
-                // Check client area click
-                int32_t clientX = w->x + 1;
-                int32_t clientY = w->y + TITLEBAR_HEIGHT + 1;
-                int32_t clientW = w->width - 2;
-                int32_t clientH = w->height - TITLEBAR_HEIGHT - 2;
-
-                if (mouse.x >= clientX && mouse.x < clientX + clientW &&
-                    mouse.y >= clientY && mouse.y < clientY + clientH)
-                {
-                    GUI_FocusWindow(w);
-                    if (w->owner_pid > 0)
+                    if (mouse.x >= fsBoxX && mouse.x <= fsBoxX + fsBoxW &&
+                        mouse.y >= fsBoxY && mouse.y <= fsBoxY + fsBoxH)
                     {
-                        gui_event_t ev;
-                        memset(&ev, 0, sizeof(ev));
-                        ev.type = GUI_EVENT_MOUSE_DOWN;
-                        ev.window_id = w->id;
-                        ev.mouse_x = mouse.x - clientX;
-                        ev.mouse_y = mouse.y - clientY;
-                        ev.button = 1;
-                        GUI_EnqueueEvent(w, &ev);
+                        g_FileExplorerSearchActive = true;
+                        GUI_FocusWindow(wExp);
+                        g_DesktopNeedsRedraw = true;
+                        MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+                        handled = true;
                     }
-                    break;
+                    else
+                    {
+                        if (g_FileExplorerSearchActive)
+                        {
+                            g_FileExplorerSearchActive = false;
+                            g_DesktopNeedsRedraw = true;
+                            MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+                        }
+                    }
+                }
+            }
+
+            // D. Window Interaction (Drag, Close, Client Click)
+            if (!handled)
+            {
+                GUI_Window* wins[32];
+                int count = 0;
+                GUI_Window* cur = g_WindowList;
+                while (cur && count < 32)
+                {
+                    wins[count++] = cur;
+                    cur = cur->next;
                 }
 
-                // Check general frame
-                if (mouse.x >= w->x && mouse.x <= w->x + w->width &&
-                    mouse.y >= w->y && mouse.y <= w->y + w->height)
+                for (int i = 0; i < count; i++)
                 {
-                    GUI_FocusWindow(w);
-                    g_DesktopNeedsRedraw = true;
-                    MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
-                    break;
+                    GUI_Window* w = wins[i];
+                    if (!w->isVisible) continue;
+
+                    // Check close button
+                    int32_t closeX = w->x + w->width - 19;
+                    int32_t closeY = w->y + 4;
+                    if (mouse.x >= closeX && mouse.x <= closeX + 15 &&
+                        mouse.y >= closeY && mouse.y <= closeY + 15)
+                    {
+                        if (w->owner_pid > 0)
+                        {
+                            gui_event_t ev;
+                            memset(&ev, 0, sizeof(ev));
+                            ev.type = GUI_EVENT_CLOSE;
+                            ev.window_id = w->id;
+                            GUI_EnqueueEvent(w, &ev);
+                        }
+                        w->isVisible = false;
+                        g_DesktopNeedsRedraw = true;
+                        MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+                        break;
+                    }
+
+                    // Check titlebar drag
+                    if (mouse.x >= w->x && mouse.x <= w->x + w->width &&
+                        mouse.y >= w->y && mouse.y <= w->y + TITLEBAR_HEIGHT)
+                    {
+                        GUI_FocusWindow(w);
+                        w->isDragging = true;
+                        w->dragOffsetX = mouse.x - w->x;
+                        w->dragOffsetY = mouse.y - w->y;
+                        g_ActiveDragWindow = w;
+                        g_DesktopNeedsRedraw = true;
+                        MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+                        break;
+                    }
+
+                    // Check client area click
+                    int32_t clientX = w->x + 1;
+                    int32_t clientY = w->y + TITLEBAR_HEIGHT + 1;
+                    int32_t clientW = w->width - 2;
+                    int32_t clientH = w->height - TITLEBAR_HEIGHT - 2;
+
+                    if (mouse.x >= clientX && mouse.x < clientX + clientW &&
+                        mouse.y >= clientY && mouse.y < clientY + clientH)
+                    {
+                        GUI_FocusWindow(w);
+                        if (w->owner_pid > 0)
+                        {
+                            gui_event_t ev;
+                            memset(&ev, 0, sizeof(ev));
+                            ev.type = GUI_EVENT_MOUSE_DOWN;
+                            ev.window_id = w->id;
+                            ev.mouse_x = mouse.x - clientX;
+                            ev.mouse_y = mouse.y - clientY;
+                            ev.button = 1;
+                            GUI_EnqueueEvent(w, &ev);
+                        }
+                        break;
+                    }
+
+                    // Check general frame
+                    if (mouse.x >= w->x && mouse.x <= w->x + w->width &&
+                        mouse.y >= w->y && mouse.y <= w->y + w->height)
+                    {
+                        GUI_FocusWindow(w);
+                        g_DesktopNeedsRedraw = true;
+                        MarkRegionDirty(0, 0, g_GuiWidth, g_GuiHeight);
+                        break;
+                    }
                 }
             }
         }

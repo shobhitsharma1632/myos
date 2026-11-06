@@ -3,6 +3,8 @@
 #include <arch/i686/irq.h>
 #include <hal/task.h>
 #include <debug.h>
+#include <string.h>
+#include <memory.h>
 #include <stdbool.h>
 
 #define MODULE "Keyboard"
@@ -10,6 +12,7 @@
 #define KEYBOARD_DATA_PORT      0x60
 #define KEYBOARD_STATUS_PORT    0x64
 #define KEYBOARD_BUFFER_SIZE    256
+#define EVENT_BUFFER_SIZE       256
 
 #define SCANCODE_EXTENDED       0xE0
 #define SCANCODE_LSHIFT         0x2A
@@ -38,10 +41,15 @@ static const char g_ScancodeTable_Shift[128] = {
     0,    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0
 };
 
-static volatile char     g_KeyBuffer[KEYBOARD_BUFFER_SIZE];
-static volatile uint32_t g_KeyHead = 0;
-static volatile uint32_t g_KeyTail = 0;
+static volatile char          g_KeyBuffer[KEYBOARD_BUFFER_SIZE];
+static volatile uint32_t      g_KeyHead = 0;
+static volatile uint32_t      g_KeyTail = 0;
 
+static volatile KeyboardEvent g_EventBuffer[EVENT_BUFFER_SIZE];
+static volatile uint32_t      g_EventHead = 0;
+static volatile uint32_t      g_EventTail = 0;
+
+static bool g_KeyStates[128];
 static bool g_LShift = false;
 static bool g_RShift = false;
 static bool g_LCtrl = false;
@@ -57,6 +65,21 @@ static void Keyboard_PushChar(char c)
     {
         g_KeyBuffer[g_KeyHead] = c;
         g_KeyHead = next;
+    }
+}
+
+static void Keyboard_PushEvent(uint8_t scancode, char ascii, bool pressed)
+{
+    uint32_t next = (g_EventHead + 1) % EVENT_BUFFER_SIZE;
+    if (next != g_EventTail)
+    {
+        g_EventBuffer[g_EventHead].scancode = scancode;
+        g_EventBuffer[g_EventHead].ascii = ascii;
+        g_EventBuffer[g_EventHead].pressed = pressed;
+        g_EventBuffer[g_EventHead].shift = (g_LShift || g_RShift);
+        g_EventBuffer[g_EventHead].ctrl = g_LCtrl;
+        g_EventBuffer[g_EventHead].alt = g_LAlt;
+        g_EventHead = next;
     }
 }
 
@@ -79,7 +102,42 @@ static void i686_Keyboard_ProcessScancode(uint8_t scancode)
             g_LCtrl = !isBreak;
         else if (code == SCANCODE_LALT)
             g_LAlt = !isBreak;
+
+        char arrow = 0;
+        if (code == 0x48) arrow = 'w';      // Up arrow -> 'w'
+        else if (code == 0x50) arrow = 's'; // Down arrow -> 's'
+        else if (code == 0x4B) arrow = 'a'; // Left arrow -> 'a'
+        else if (code == 0x4D) arrow = 'd'; // Right arrow -> 'd'
+
+        Keyboard_PushEvent(code | 0x80, arrow, !isBreak);
+        if (!isBreak && arrow)
+        {
+            Keyboard_PushChar(arrow);
+        }
         return;
+    }
+
+    if (code < 128)
+    {
+        g_KeyStates[code] = !isBreak;
+    }
+
+    char c = 0;
+    if (code < 128)
+    {
+        bool shift = (g_LShift || g_RShift);
+        if (g_CapsLock)
+        {
+            char norm = g_ScancodeTable_Normal[code];
+            if (norm >= 'a' && norm <= 'z')
+                c = shift ? norm : (norm - 32);
+            else
+                c = shift ? g_ScancodeTable_Shift[code] : norm;
+        }
+        else
+        {
+            c = shift ? g_ScancodeTable_Shift[code] : g_ScancodeTable_Normal[code];
+        }
     }
 
     if (isBreak)
@@ -93,6 +151,8 @@ static void i686_Keyboard_ProcessScancode(uint8_t scancode)
             g_LCtrl = false;
         else if (code == SCANCODE_LALT)
             g_LAlt = false;
+
+        Keyboard_PushEvent(code, c, false);
     }
     else
     {
@@ -107,29 +167,9 @@ static void i686_Keyboard_ProcessScancode(uint8_t scancode)
             g_LAlt = true;
         else if (code == SCANCODE_CAPSLOCK)
             g_CapsLock = !g_CapsLock;
-        else if (code < 128)
+
+        if (c != 0)
         {
-            bool shift = (g_LShift || g_RShift);
-            char c = 0;
-
-            if (g_CapsLock)
-            {
-                char norm = g_ScancodeTable_Normal[code];
-                if (norm >= 'a' && norm <= 'z')
-                {
-                    // If Shift is also held, invert CapsLock
-                    c = shift ? norm : (norm - 32);
-                }
-                else
-                {
-                    c = shift ? g_ScancodeTable_Shift[code] : norm;
-                }
-            }
-            else
-            {
-                c = shift ? g_ScancodeTable_Shift[code] : g_ScancodeTable_Normal[code];
-            }
-
             // Handle Ctrl+C or Ctrl+L combinations
             if (g_LCtrl && (c == 'c' || c == 'C'))
             {
@@ -143,9 +183,10 @@ static void i686_Keyboard_ProcessScancode(uint8_t scancode)
             else if (g_LCtrl && (c == 'l' || c == 'L'))
                 c = 0x0C; // Form Feed / Clear screen
 
-            if (c != 0)
-                Keyboard_PushChar(c);
+            Keyboard_PushChar(c);
         }
+
+        Keyboard_PushEvent(code, c, true);
     }
 }
 
@@ -161,6 +202,10 @@ void i686_Keyboard_Initialize(void)
 {
     g_KeyHead = 0;
     g_KeyTail = 0;
+    g_EventHead = 0;
+    g_EventTail = 0;
+    memset(g_KeyStates, 0, sizeof(g_KeyStates));
+
     g_LShift = false;
     g_RShift = false;
     g_LCtrl = false;
@@ -207,6 +252,21 @@ char i686_Keyboard_WaitChar(void)
     return i686_Keyboard_GetChar();
 }
 
+bool i686_Keyboard_HasEvent(void)
+{
+    return (g_EventHead != g_EventTail);
+}
+
+bool i686_Keyboard_GetEvent(KeyboardEvent* ev)
+{
+    if (!ev || g_EventHead == g_EventTail)
+        return false;
+
+    *ev = g_EventBuffer[g_EventTail];
+    g_EventTail = (g_EventTail + 1) % EVENT_BUFFER_SIZE;
+    return true;
+}
+
 bool i686_Keyboard_IsShiftPressed(void)
 {
     return (g_LShift || g_RShift);
@@ -220,6 +280,13 @@ bool i686_Keyboard_IsCtrlPressed(void)
 bool i686_Keyboard_IsCapsLocked(void)
 {
     return g_CapsLock;
+}
+
+bool i686_Keyboard_IsKeyDown(uint8_t scancode)
+{
+    if (scancode < 128)
+        return g_KeyStates[scancode];
+    return false;
 }
 
 void i686_Keyboard_InjectScancode(uint8_t scancode)
